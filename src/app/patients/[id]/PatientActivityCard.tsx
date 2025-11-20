@@ -1605,7 +1605,8 @@ export default function PatientActivityCard({
   ];
 
   return (
-    <div className="mt-4 space-y-3 rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
+
+    <div className="mt-4 flex min-h-[60vh] flex-col space-y-3 rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
       <div className="flex flex-wrap items-center gap-3">
         <div className="relative flex-1">
           <input
@@ -1713,7 +1714,7 @@ export default function PatientActivityCard({
         </div>
       </div>
 
-      <div className="mt-3 space-y-2 text-xs text-slate-700">
+      <div className="mt-3 flex-1 space-y-2 overflow-y-auto text-xs text-slate-700">
         {activeTab === "activity" && (
           <div className="space-y-2">
             <div className="flex items-start gap-2 rounded-lg border border-emerald-100 bg-emerald-50/80 px-3 py-2 text-[11px] text-emerald-900">
@@ -2837,8 +2838,8 @@ export default function PatientActivityCard({
       </div>
 
       {noteModalOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-xs shadow-[0_24px_60px_rgba(15,23,42,0.65)]">
+        <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm py-6 sm:py-8">
+          <div className="w-full max-w-md max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-xs shadow-[0_24px_60px_rgba(15,23,42,0.65)]">
             <h2 className="text-sm font-semibold text-slate-900">New note</h2>
             <p className="mt-1 text-[11px] text-slate-500">
               Write an internal note about this patient. Use the @ button to mention teammates.
@@ -2919,8 +2920,8 @@ export default function PatientActivityCard({
       ) : null}
 
       {createTaskModalOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-xs shadow-[0_24px_60px_rgba(15,23,42,0.65)]">
+        <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm py-6 sm:py-8">
+          <div className="w-full max-w-md max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-xs shadow-[0_24px_60px_rgba(15,23,42,0.65)]">
             <h2 className="text-sm font-semibold text-slate-900">
               {editTask ? "Edit Task" : "Create Task"}
             </h2>
@@ -3050,8 +3051,8 @@ export default function PatientActivityCard({
       ) : null}
 
       {dealModalOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
-          <div className="w-full max-w-2xl rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-xs shadow-[0_24px_60px_rgba(15,23,42,0.65)]">
+        <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm py-6 sm:py-8">
+          <div className="w-full max-w-2xl max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-xs shadow-[0_24px_60px_rgba(15,23,42,0.65)]">
             <div className="flex items-start justify-between gap-2">
               <h2 className="text-sm font-semibold text-slate-900">
                 {editingDeal ? "Edit Deal" : "Create Deal"}
@@ -3236,8 +3237,8 @@ export default function PatientActivityCard({
       ) : null}
 
       {viewEmail ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-xs shadow-[0_24px_60px_rgba(15,23,42,0.65)]">
+        <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm py-6 sm:py-8">
+          <div className="w-full max-w-lg max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-xs shadow-[0_24px_60px_rgba(15,23,42,0.65)]">
             <div className="flex items-start justify-between gap-2">
               <div className="space-y-1">
                 <div className="flex items-center gap-2">
@@ -3364,8 +3365,8 @@ export default function PatientActivityCard({
       ) : null}
 
       {emailModalOpen ? (
-        <div className="fixed inset-0 z-40 flex items-center justify-center bg-slate-900/40 backdrop-blur-sm">
-          <div className="w-full max-w-lg rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-xs shadow-[0_24px_60px_rgba(15,23,42,0.65)]">
+        <div className="fixed inset-0 z-40 flex items-start justify-center overflow-y-auto bg-slate-900/40 backdrop-blur-sm py-6 sm:py-8">
+          <div className="w-full max-w-lg max-h-[calc(100vh-3rem)] overflow-y-auto rounded-2xl border border-slate-200/80 bg-white/95 p-4 text-xs shadow-[0_24px_60px_rgba(15,23,42,0.65)]">
             <h2 className="text-sm font-semibold text-slate-900">Compose email</h2>
             <p className="mt-1 text-[11px] text-slate-500">
               This will be recorded on the patient timeline as an outbound email.
