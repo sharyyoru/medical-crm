@@ -1455,6 +1455,41 @@ export default function PatientActivityCard({
         setEmailAttachmentsError(null);
       }
 
+      try {
+        const response = await fetch("/api/emails/send", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            to: toAddress,
+            subject,
+            html: finalBody,
+            fromUserEmail: fromAddress,
+            emailId: insertedEmail.id,
+          }),
+        });
+
+        let payload: unknown = null;
+        try {
+          payload = await response.json();
+        } catch {
+        }
+
+        console.log("/api/emails/send response", response.status, payload);
+
+        if (!response.ok) {
+          setEmailSaveError(
+            "Email saved internally but failed to send via email provider.",
+          );
+        }
+      } catch (error) {
+        console.error("Network error calling /api/emails/send", error);
+        setEmailSaveError(
+          "Email saved internally but failed to send via email provider.",
+        );
+      }
+
       setEmails((prev) => [insertedEmail, ...prev]);
       setEmailTo(defaultEmailTo);
       setEmailSubject("");
@@ -2243,7 +2278,7 @@ export default function PatientActivityCard({
               </p>
             ) : (
               <div className="space-y-2">
-                {sortedEmails.map((email) => {
+                {sortedEmails.map((email, index) => {
                   const timestampRaw = email.sent_at ?? email.created_at;
                   const tsDate = timestampRaw ? new Date(timestampRaw) : null;
                   const tsLabel =
@@ -2269,7 +2304,7 @@ export default function PatientActivityCard({
 
                   return (
                     <button
-                      key={email.id}
+                      key={`${email.id}-${index}`}
                       type="button"
                       onClick={() => setViewEmail(email)}
                       className="w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-left text-[11px] text-slate-800 shadow-sm transition hover:border-sky-200 hover:bg-white"
