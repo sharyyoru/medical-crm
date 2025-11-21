@@ -26,8 +26,7 @@ export default async function Patient3DPage({ params }: Patient3DPageProps) {
     );
   }
 
-  const stateSuffix = Math.random().toString(36).slice(2, 10);
-  const state = `${id}-${stateSuffix}`;
+  const state = id;
 
   const url = new URL(authorizeBaseUrl);
   url.searchParams.set("response_type", "code");

@@ -24,8 +24,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const [patientId] = state.split("-");
-  const safePatientId = patientId?.trim();
+  const safePatientId = state.trim() || null;
 
   const clientId = process.env.CRISALIX_CLIENT_ID;
   const clientSecret = process.env.CRISALIX_CLIENT_SECRET;
