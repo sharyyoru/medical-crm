@@ -996,10 +996,10 @@ export default function CalendarPage() {
   async function handleCreateNewPatient() {
     const firstName = newPatientFirstName.trim();
     const lastName = newPatientLastName.trim();
-    const email = newPatientEmail.trim();
+    const emailRaw = newPatientEmail.trim();
     const phoneRaw = newPatientPhone.trim();
 
-    if (!firstName || !lastName || !email || !phoneRaw) {
+    if (!firstName || !lastName || !emailRaw || !phoneRaw) {
       setNewPatientError(
         "First name, last name, email, and phone are required.",
       );
@@ -1008,17 +1008,31 @@ export default function CalendarPage() {
 
     const countryCode = "+41";
     const phone = `${countryCode} ${phoneRaw.replace(/^0+/, "").replace(/\s+/g, " ")}`.trim();
+    const normalizedEmail = emailRaw.toLowerCase();
 
     try {
       setSavingNewPatient(true);
       setNewPatientError(null);
+
+      const { data: existing, error: existingError } = await supabaseClient
+        .from("patients")
+        .select("id")
+        .ilike("email", normalizedEmail)
+        .limit(1)
+        .maybeSingle();
+
+      if (!existingError && existing) {
+        setNewPatientError("A patient with this email already exists.");
+        setSavingNewPatient(false);
+        return;
+      }
 
       const { data, error } = await supabaseClient
         .from("patients")
         .insert({
           first_name: firstName,
           last_name: lastName,
-          email,
+          email: normalizedEmail,
           phone,
           gender: newPatientGender || null,
           source: (newPatientSource || "manual").toLowerCase(),

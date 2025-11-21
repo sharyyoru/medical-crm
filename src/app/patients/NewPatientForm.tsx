@@ -51,8 +51,23 @@ export default function NewPatientForm() {
       return;
     }
 
+    const normalizedEmail = emailRaw.toLowerCase();
+
     setLoading(true);
     setError(null);
+
+    const { data: existing, error: existingError } = await supabaseClient
+      .from("patients")
+      .select("id")
+      .ilike("email", normalizedEmail)
+      .limit(1)
+      .maybeSingle();
+
+    if (!existingError && existing) {
+      setError("A patient with this email already exists.");
+      setLoading(false);
+      return;
+    }
 
     const { data: authData } = await supabaseClient.auth.getUser();
     const authUser = authData?.user ?? null;
@@ -76,7 +91,7 @@ export default function NewPatientForm() {
       .insert({
         first_name: firstName,
         last_name: lastName,
-        email: emailRaw,
+        email: normalizedEmail,
         phone,
         gender: genderRaw,
         source,

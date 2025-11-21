@@ -41,6 +41,8 @@ create table if not exists patients (
 );
 
 create index if not exists patients_email_idx on patients(email);
+create unique index if not exists patients_email_unique
+  on patients (lower(email));
 create index if not exists patients_last_name_idx on patients(last_name);
 
 -- Patient insurance information

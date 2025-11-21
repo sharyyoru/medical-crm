@@ -116,17 +116,19 @@ export default function PatientDetailsWizard({
 
     const firstName = (formData.get("first_name") as string | null)?.trim();
     const lastName = (formData.get("last_name") as string | null)?.trim();
-    const email = (formData.get("email") as string | null)?.trim() || null;
+    const emailRaw = (formData.get("email") as string | null)?.trim() || null;
     const phone = (formData.get("phone") as string | null)?.trim() || null;
     const gender =
       (formData.get("gender") as string | null)?.trim().toLowerCase() || null;
     const sourceRaw =
       (formData.get("source") as string | null)?.trim().toLowerCase() || null;
 
-    if (!firstName || !lastName || !email || !phone) {
+    if (!firstName || !lastName || !emailRaw || !phone) {
       setError("First name, last name, email, and phone are required.");
       return;
     }
+
+    const email = emailRaw.toLowerCase();
 
     const updatePayload: Record<string, unknown> = {
       first_name: firstName,
@@ -145,6 +147,20 @@ export default function PatientDetailsWizard({
 
     setSaving(true);
     setError(null);
+
+    const { data: existing, error: existingError } = await supabaseClient
+      .from("patients")
+      .select("id")
+      .ilike("email", email)
+      .neq("id", patient.id)
+      .limit(1)
+      .maybeSingle();
+
+    if (!existingError && existing) {
+      setError("Another patient with this email already exists.");
+      setSaving(false);
+      return;
+    }
 
     const { error } = await supabaseClient
       .from("patients")
