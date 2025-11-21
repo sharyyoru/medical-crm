@@ -56,7 +56,20 @@ export default function Patient3DSetupPage() {
         return;
       }
 
-      router.push(`/patients/${patientId}?mode=medical`);
+      const data = (await response.json()) as {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        patient?: { player_id?: string | null } & Record<string, any>;
+      };
+      const playerId = data.patient?.player_id ?? null;
+
+      if (playerId) {
+        const url = `/patients/${patientId}?mode=medical&show3d=1&cr_player_id=${encodeURIComponent(
+          playerId,
+        )}&cr_type=${type}`;
+        router.push(url);
+      } else {
+        router.push(`/patients/${patientId}?mode=medical`);
+      }
     } catch (err) {
       setError("Unexpected error while creating 3D reconstruction.");
       // eslint-disable-next-line no-console

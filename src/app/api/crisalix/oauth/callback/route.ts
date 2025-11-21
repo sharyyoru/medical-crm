@@ -106,5 +106,15 @@ export async function GET(request: NextRequest) {
     },
   );
 
+  if (tokenJson.player_token) {
+    response.cookies.set("crisalix_player_token", tokenJson.player_token, {
+      httpOnly: false,
+      secure: true,
+      sameSite: "lax",
+      path: "/",
+      maxAge: maxAgeSeconds,
+    });
+  }
+
   return response;
 }

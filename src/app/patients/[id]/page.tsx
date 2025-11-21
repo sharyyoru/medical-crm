@@ -6,6 +6,7 @@ import PatientModeToggle from "./PatientModeToggle";
 import PatientDetailsTabs from "./PatientDetailsTabs";
 import PatientCrmPreferencesCard from "./PatientCrmPreferencesCard";
 import PatientActivityCard from "./PatientActivityCard";
+import CrisalixPlayerModal from "./CrisalixPlayerModal";
 
 interface PatientDetailsProps {
   params: Promise<{ id: string }>;
@@ -78,6 +79,28 @@ export default async function PatientPage({
 
   const mode: "crm" | "medical" = rawMode === "medical" ? "medical" : "crm";
 
+  const crPlayerIdRaw = (() => {
+    const value = resolvedSearchParams?.cr_player_id;
+    if (typeof value === "string") return value;
+    if (Array.isArray(value) && value.length > 0) return value[0];
+    return undefined;
+  })();
+
+  const crTypeRawParam = (() => {
+    const value = resolvedSearchParams?.cr_type;
+    if (typeof value === "string") return value;
+    if (Array.isArray(value) && value.length > 0) return value[0];
+    return undefined;
+  })();
+
+  let crType: "breast" | "face" | "body" | null = null;
+  if (crTypeRawParam === "breast" || crTypeRawParam === "face" || crTypeRawParam === "body") {
+    crType = crTypeRawParam;
+  }
+
+  const show3d =
+    resolvedSearchParams?.show3d === "1" && !!crPlayerIdRaw && crType !== null;
+
   let genderClasses = "bg-slate-50 text-slate-700 border-slate-200";
   if (gender === "male") {
     genderClasses = "bg-sky-50 text-sky-700 border-sky-200";
@@ -88,6 +111,12 @@ export default async function PatientPage({
   return (
     <div className="space-y-6">
       <CollapseSidebarOnMount />
+      <CrisalixPlayerModal
+        patientId={patient.id}
+        open={mode === "medical" && show3d}
+        playerId={crPlayerIdRaw ?? null}
+        reconstructionType={crType}
+      />
       <div className="relative">
         <div className="flex items-baseline justify-between gap-3 relative z-10">
           <div>
