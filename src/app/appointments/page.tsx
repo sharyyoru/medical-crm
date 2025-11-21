@@ -29,13 +29,13 @@ function workflowToAppointmentStatus(status: WorkflowStatus): AppointmentStatus 
 function getAppointmentStatusColorClasses(status: AppointmentStatus): string {
   switch (status) {
     case "confirmed":
-      return "border border-emerald-400 bg-emerald-50";
+      return "border border-emerald-400";
     case "cancelled":
-      return "border border-rose-400 bg-rose-50";
+      return "border border-rose-400";
     case "completed":
-      return "border border-slate-300 bg-slate-50";
+      return "border border-slate-300 opacity-70";
     default:
-      return "border border-sky-100 bg-sky-50";
+      return "border border-sky-100";
   }
 }
 
@@ -43,6 +43,8 @@ type AppointmentPatient = {
   id: string;
   first_name: string | null;
   last_name: string | null;
+  email: string | null;
+  phone: string | null;
 };
 
 type AppointmentPatientSuggestion = {
@@ -204,6 +206,157 @@ function getDoctorNameFromReason(reason: string | null): string | null {
   return raw || null;
 }
 
+async function sendAppointmentConfirmationEmail(
+  appointment: CalendarAppointment,
+): Promise<void> {
+  const patientEmail = appointment.patient?.email ?? null;
+  if (!patientEmail) return;
+
+  try {
+    const { data: authData } = await supabaseClient.auth.getUser();
+    const authUser = authData?.user ?? null;
+    const fromAddress = authUser?.email ?? null;
+
+    const start = new Date(appointment.start_time);
+    const end = appointment.end_time ? new Date(appointment.end_time) : null;
+
+    const dateLabel = start.toLocaleDateString(undefined, {
+      year: "numeric",
+      month: "long",
+      day: "numeric",
+    });
+    const timeLabel = formatTimeRangeLabel(start, end);
+    const dateTimeLabel = `${dateLabel} ${timeLabel}`;
+
+    const patientName = `${appointment.patient?.first_name ?? ""} ${appointment
+      .patient?.last_name ?? ""}`
+      .trim()
+      .replace(/\s+/g, " ");
+
+    const doctorName =
+      getDoctorNameFromReason(appointment.reason) ??
+      appointment.provider?.name ??
+      "your doctor";
+
+    const location = appointment.location ?? "the clinic";
+
+    const { serviceLabel } = getServiceAndStatusFromReason(appointment.reason);
+
+    const origin =
+      typeof window !== "undefined" ? window.location.origin : "";
+    const preConsultationUrl = origin
+      ? `${origin}/pre-consultation`
+      : "/pre-consultation";
+
+    const subject = `Appointment confirmation - ${dateLabel} ${timeLabel}`;
+
+    const htmlBody = `
+      <p>Dear ${patientName || "patient"},</p>
+      <p>Your appointment has been booked with ${doctorName}.</p>
+      <p>
+        <strong>Date:</strong> ${dateLabel}<br />
+        <strong>Time:</strong> ${timeLabel}<br />
+        <strong>Location:</strong> ${location}
+      </p>
+      <p>
+        If you need to reschedule or cancel, please contact the clinic or reply to this email.
+      </p>
+      <p>
+        <strong>Complete Your Pre-Consultation Form</strong><br />
+        <a href="${preConsultationUrl}">Pre Consultation Link</a>
+      </p>
+      <p>
+        <strong>Maison Toa</strong><br />
+        <strong>GENEVE</strong><br />
+        Rue du Rhône 17, 1204, Switzerland<br />
+        📞 0227322223 ✉️ info@aesthetics-ge.ch<br /><br />
+        <strong>GSTAAD</strong><br />
+        Gsteigstrasse 70, 3780, Switzerland<br />
+        📞 +41 337 483 437 ✉️ info@aesthetics-ge.ch<br /><br />
+        <strong>MONTREUX</strong><br />
+        Av Calud Nobs 2, 1820, Switzerland<br />
+        📞 +41 21 991 98 98 ✉️ info@thebeautybooth.shop
+      </p>
+    `;
+
+    const nowIso = new Date().toISOString();
+
+    const { data, error } = await supabaseClient
+      .from("emails")
+      .insert({
+        patient_id: appointment.patient_id,
+        deal_id: null,
+        to_address: patientEmail,
+        from_address: fromAddress,
+        subject,
+        body: htmlBody,
+        direction: "outbound",
+        status: "sent",
+        sent_at: nowIso,
+      })
+      .select("id")
+      .single();
+
+    if (error || !data) {
+      console.error("Failed to insert appointment confirmation email", error);
+      return;
+    }
+
+    try {
+      await fetch("/api/emails/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          to: patientEmail,
+          subject,
+          html: htmlBody,
+          fromUserEmail: fromAddress,
+          emailId: (data as any).id as string,
+        }),
+      });
+    } catch (error) {
+      console.error(
+        "Appointment confirmation email saved but failed to send via provider",
+        error,
+      );
+    }
+
+    const patientPhone = appointment.patient?.phone ?? null;
+    if (patientPhone && patientPhone.trim().length > 0) {
+      const whatsappText = `Appointment confirmation on ${dateTimeLabel} for ${serviceLabel} with ${doctorName} at ${location}`;
+
+      const templateVariables = {
+        "1": dateTimeLabel,
+        "2": serviceLabel,
+        "3": doctorName,
+        "4": patientName || "patient",
+      };
+
+      try {
+        await fetch("/api/whatsapp/send", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            patientId: appointment.patient_id,
+            to: patientPhone,
+            body: whatsappText,
+            templateSid: "HX6f50c6d2b3b2372a9c2145ebfc1b5911",
+            templateVariables,
+          }),
+        });
+      } catch (error) {
+        console.error("Failed to send WhatsApp appointment notification", error);
+      }
+    }
+  } catch (error) {
+    console.error("Failed to prepare appointment confirmation email", error);
+  }
+}
+
 export default function CalendarPage() {
   const [visibleMonth, setVisibleMonth] = useState(() => {
     const now = new Date();
@@ -298,7 +451,7 @@ export default function CalendarPage() {
         const { data, error } = await supabaseClient
           .from("appointments")
           .select(
-            "id, patient_id, provider_id, start_time, end_time, status, reason, location, patient:patients(id, first_name, last_name), provider:providers(id, name)",
+            "id, patient_id, provider_id, start_time, end_time, status, reason, location, patient:patients(id, first_name, last_name, email, phone), provider:providers(id, name)",
           )
           .neq("status", "cancelled")
           .gte("start_time", fromIso)
@@ -991,7 +1144,7 @@ export default function CalendarPage() {
           source: "manual",
         })
         .select(
-          "id, patient_id, provider_id, start_time, end_time, status, reason, location, patient:patients(id, first_name, last_name), provider:providers(id, name)",
+          "id, patient_id, provider_id, start_time, end_time, status, reason, location, patient:patients(id, first_name, last_name, email, phone), provider:providers(id, name)",
         )
         .single();
 
@@ -1001,8 +1154,25 @@ export default function CalendarPage() {
         return;
       }
 
+      const inserted = data as unknown as CalendarAppointment;
+
+      // Focus calendar on the booked date so the new appointment is visible
+      const insertedStart = new Date(inserted.start_time);
+      if (!Number.isNaN(insertedStart.getTime())) {
+        setSelectedDate(insertedStart);
+        setRangeEndDate(null);
+        setVisibleMonth(
+          new Date(
+            insertedStart.getFullYear(),
+            insertedStart.getMonth(),
+            1,
+          ),
+        );
+      }
+
+      void sendAppointmentConfirmationEmail(inserted);
+
       setAppointments((prev) => {
-        const inserted = data as unknown as CalendarAppointment;
         const next = [...prev, inserted];
         next.sort((a, b) => {
           const aTime = new Date(a.start_time).getTime();
@@ -1114,7 +1284,7 @@ export default function CalendarPage() {
         })
         .eq("id", editingAppointment.id)
         .select(
-          "id, patient_id, provider_id, start_time, end_time, status, reason, location, patient:patients(id, first_name, last_name), provider:providers(id, name)",
+          "id, patient_id, provider_id, start_time, end_time, status, reason, location, patient:patients(id, first_name, last_name, email, phone), provider:providers(id, name)",
         )
         .single();
 
@@ -1627,6 +1797,12 @@ export default function CalendarPage() {
                             appt.reason,
                           );
 
+                          const patientName = `${appt.patient?.first_name ?? ""} ${
+                            appt.patient?.last_name ?? ""
+                          }`
+                            .trim()
+                            .replace(/\s+/g, " ");
+
                           const doctorFromReason = getDoctorNameFromReason(appt.reason);
                           const providerName = (appt.provider?.name ?? "").trim().toLowerCase();
                           const doctorKey = (doctorFromReason ?? providerName).trim().toLowerCase();
@@ -1648,10 +1824,10 @@ export default function CalendarPage() {
                               )} ${doctorColor}`}
                             >
                               <div className="truncate font-medium text-slate-800">
-                                {serviceLabel}
+                                {patientName || serviceLabel}
                               </div>
                               <div className="truncate text-[10px] text-slate-500">
-                                {timeLabel}
+                                {timeLabel} {serviceLabel ? `• ${serviceLabel}` : ""}
                               </div>
                             </button>
                           );
@@ -1803,6 +1979,12 @@ export default function CalendarPage() {
                             );
                             const doctorColor = doctorCalendar?.color ?? "";
 
+                            const patientName = `${appt.patient?.first_name ?? ""} ${
+                              appt.patient?.last_name ?? ""
+                            }`
+                              .trim()
+                              .replace(/\s+/g, " ");
+
                             return (
                               <button
                                 key={`${ymd}-${appt.id}`}
@@ -1817,10 +1999,10 @@ export default function CalendarPage() {
                                 }}
                               >
                                 <div className="truncate font-medium text-slate-800">
-                                  {serviceLabel}
+                                  {patientName || serviceLabel}
                                 </div>
                                 <div className="truncate text-[10px] text-slate-600">
-                                  {timeLabel}
+                                  {timeLabel} {serviceLabel ? `• ${serviceLabel}` : ""}
                                 </div>
                               </button>
                             );

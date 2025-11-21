@@ -224,6 +224,35 @@ create table if not exists email_attachments (
 
 create index if not exists email_attachments_email_id_idx on email_attachments(email_id);
 
+-- WhatsApp message status and direction enums
+create type if not exists whatsapp_status as enum (
+  'queued',
+  'sent',
+  'delivered',
+  'failed'
+);
+
+create type if not exists whatsapp_direction as enum (
+  'outbound',
+  'inbound'
+);
+
+-- WhatsApp messages linked to a patient
+create table if not exists whatsapp_messages (
+  id uuid primary key default gen_random_uuid(),
+  patient_id uuid references patients(id) on delete set null,
+  to_number text not null,
+  from_number text,
+  body text not null,
+  status whatsapp_status not null default 'queued',
+  direction whatsapp_direction not null default 'outbound',
+  provider_message_sid text,
+  sent_at timestamptz,
+  created_at timestamptz default now()
+);
+
+create index if not exists whatsapp_messages_patient_id_idx on whatsapp_messages(patient_id);
+
 -- Document type enum
 create type if not exists document_type as enum (
   'post_op',

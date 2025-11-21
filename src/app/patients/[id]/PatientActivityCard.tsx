@@ -60,6 +60,22 @@ type EmailAttachmentCount = {
   count: number;
 };
 
+type WhatsappStatus = "queued" | "sent" | "delivered" | "failed";
+
+type WhatsappDirection = "outbound" | "inbound";
+
+type WhatsappMessage = {
+  id: string;
+  patient_id: string | null;
+  to_number: string;
+  from_number: string | null;
+  body: string;
+  status: WhatsappStatus;
+  direction: WhatsappDirection;
+  sent_at: string | null;
+  created_at: string;
+};
+
 type TaskStatus = "not_started" | "in_progress" | "completed";
 
 type TaskPriority = "low" | "medium" | "high";
@@ -216,6 +232,13 @@ export default function PatientActivityCard({
     EmailAttachmentCount[]
   >([]);
 
+  const [whatsappMessages, setWhatsappMessages] = useState<WhatsappMessage[]>([]);
+  const [whatsappLoading, setWhatsappLoading] = useState(false);
+  const [whatsappError, setWhatsappError] = useState<string | null>(null);
+  const [whatsappBody, setWhatsappBody] = useState("");
+  const [whatsappTo, setWhatsappTo] = useState("");
+  const [whatsappSending, setWhatsappSending] = useState(false);
+
   const [tasks, setTasks] = useState<Task[]>([]);
   const [tasksLoading, setTasksLoading] = useState(false);
   const [tasksError, setTasksError] = useState<string | null>(null);
@@ -297,6 +320,71 @@ export default function PatientActivityCard({
       setActiveTab(tabParam as ActivityTab);
     }
   }, [searchParams]);
+
+  async function handleWhatsAppSend(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const to = whatsappTo.trim();
+    const body = whatsappBody.trim();
+
+    if (!to || !body) {
+      setWhatsappError("Phone number and message are required.");
+      return;
+    }
+
+    try {
+      setWhatsappSending(true);
+      setWhatsappError(null);
+
+      const response = await fetch("/api/whatsapp/send", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          patientId,
+          to,
+          body,
+        }),
+      });
+
+      let payload: any = null;
+      try {
+        payload = await response.json();
+      } catch {
+      }
+
+      console.log("/api/whatsapp/send response", response.status, payload);
+
+      if (!response.ok) {
+        setWhatsappError(
+          payload?.error ?? "WhatsApp message saved internally but failed to send.",
+        );
+        setWhatsappSending(false);
+        return;
+      }
+
+      const nowIso = new Date().toISOString();
+      const newMessage: WhatsappMessage = {
+        id: (payload?.id as string) ?? nowIso,
+        patient_id: patientId,
+        to_number: to,
+        from_number: null,
+        body,
+        status: "sent",
+        direction: "outbound",
+        sent_at: nowIso,
+        created_at: nowIso,
+      };
+
+      setWhatsappMessages((prev) => [newMessage, ...prev]);
+      setWhatsappBody("");
+    } catch {
+      setWhatsappError("Failed to send WhatsApp message.");
+    } finally {
+      setWhatsappSending(false);
+    }
+  }
 
   useEffect(() => {
     let isMounted = true;
@@ -786,6 +874,64 @@ export default function PatientActivityCard({
       isMounted = false;
     };
   }, [patientId, userOptions]);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadPatientContactAndWhatsApp() {
+      try {
+        const { data: patientRow } = await supabaseClient
+          .from("patients")
+          .select("phone")
+          .eq("id", patientId)
+          .single();
+
+        if (!isMounted) return;
+
+        const phone = (patientRow?.phone as string | null) ?? null;
+        if (phone && phone.trim().length > 0) {
+          setWhatsappTo((prev) => prev || phone.trim());
+        }
+      } catch {
+      }
+
+      try {
+        setWhatsappLoading(true);
+        setWhatsappError(null);
+
+        const { data, error } = await supabaseClient
+          .from("whatsapp_messages")
+          .select(
+            "id, patient_id, to_number, from_number, body, status, direction, sent_at, created_at",
+          )
+          .eq("patient_id", patientId)
+          .order("created_at", { ascending: false });
+
+        if (!isMounted) return;
+
+        if (error || !data) {
+          setWhatsappError(error?.message ?? "Failed to load WhatsApp messages.");
+          setWhatsappMessages([]);
+        } else {
+          setWhatsappMessages(data as WhatsappMessage[]);
+        }
+      } catch {
+        if (!isMounted) return;
+        setWhatsappError("Failed to load WhatsApp messages.");
+        setWhatsappMessages([]);
+      } finally {
+        if (isMounted) {
+          setWhatsappLoading(false);
+        }
+      }
+    }
+
+    loadPatientContactAndWhatsApp();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [patientId]);
 
   async function handleNoteSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -2363,9 +2509,90 @@ export default function PatientActivityCard({
           </div>
         )}
         {activeTab === "whatsapp" && (
-          <p className="text-[11px] text-slate-500">
-            Whatsapp activity (to be implemented).
-          </p>
+          <div className="space-y-3">
+            <p className="text-[11px] text-slate-500">
+              WhatsApp activity for this patient. Messages are sent via Twilio WhatsApp
+              using the clinic number.
+            </p>
+            <form onSubmit={handleWhatsAppSend} className="space-y-2">
+              <div className="space-y-1">
+                <p className="text-[11px] font-medium text-slate-600">To</p>
+                <input
+                  type="text"
+                  value={whatsappTo}
+                  onChange={(event) => setWhatsappTo(event.target.value)}
+                  placeholder="Patient WhatsApp number (e.g. +41790000000)"
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-1.5 text-xs text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                />
+              </div>
+              <div className="space-y-1">
+                <p className="text-[11px] font-medium text-slate-600">Message</p>
+                <textarea
+                  value={whatsappBody}
+                  onChange={(event) => setWhatsappBody(event.target.value)}
+                  rows={3}
+                  className="w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  placeholder="Type a WhatsApp message to this patient"
+                />
+              </div>
+              {whatsappError ? (
+                <p className="text-[11px] text-red-600">{whatsappError}</p>
+              ) : null}
+              <div className="flex items-center justify-end">
+                <button
+                  type="submit"
+                  disabled={whatsappSending}
+                  className="inline-flex items-center rounded-full border border-emerald-500/80 bg-emerald-600 px-3 py-1.5 text-[11px] font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  Send WhatsApp
+                </button>
+              </div>
+            </form>
+            <div className="mt-3 space-y-1">
+              <p className="text-[11px] font-medium text-slate-600">Conversation</p>
+              {whatsappLoading ? (
+                <p className="text-[11px] text-slate-500">Loading messages...</p>
+              ) : whatsappMessages.length === 0 ? (
+                <p className="text-[11px] text-slate-500">No WhatsApp messages yet.</p>
+              ) : (
+                <div className="space-y-1">
+                  {whatsappMessages.map((msg) => {
+                    const ts = msg.sent_at ?? msg.created_at;
+                    const date = ts ? new Date(ts) : null;
+                    const tsLabel =
+                      date && !Number.isNaN(date.getTime())
+                        ? date.toLocaleString()
+                        : null;
+
+                    const isOutbound = msg.direction === "outbound";
+
+                    return (
+                      <div
+                        key={msg.id}
+                        className={`flex flex-col rounded-lg border px-3 py-1.5 text-[11px] shadow-sm ${
+                          isOutbound
+                            ? "border-emerald-200 bg-emerald-50/80 text-emerald-900"
+                            : "border-slate-200 bg-slate-50/80 text-slate-800"
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-[10px] font-medium uppercase tracking-wide">
+                            {isOutbound ? "Outbound" : "Inbound"}
+                          </span>
+                          {tsLabel ? (
+                            <span className="text-[10px] text-slate-500">{tsLabel}</span>
+                          ) : null}
+                        </div>
+                        <p className="mt-0.5 whitespace-pre-wrap text-[11px]">
+                          {msg.body}
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          </div>
         )}
         {activeTab === "tasks" && (
           <div className="space-y-3">
