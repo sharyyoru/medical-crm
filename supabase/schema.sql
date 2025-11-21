@@ -111,6 +111,18 @@ create table if not exists deal_stages (
   is_default boolean not null default false
 );
 
+-- Services
+create table if not exists services (
+  id uuid primary key default gen_random_uuid(),
+  clinic_id uuid not null,
+  name text not null,
+  description text,
+  base_price numeric(12, 2) not null default 0,
+  category_id uuid,
+  created_at timestamp with time zone default now() not null,
+  updated_at timestamp with time zone default now() not null
+);
+
 -- Deals (cases / opportunities)
 create table if not exists deals (
   id uuid primary key default gen_random_uuid(),
@@ -129,6 +141,18 @@ create table if not exists deals (
 
 create index if not exists deals_patient_id_idx on deals(patient_id);
 create index if not exists deals_stage_id_idx on deals(stage_id);
+
+-- Crisalix reconstructions
+create table if not exists crisalix_reconstructions (
+  id uuid primary key default gen_random_uuid(),
+  patient_id uuid not null references patients(id) on delete cascade,
+  crisalix_patient_id integer not null,
+  reconstruction_type text not null,
+  player_id text,
+  created_at timestamp with time zone default now() not null
+);
+
+create index if not exists crisalix_reconstructions_patient_type_idx on crisalix_reconstructions(patient_id, reconstruction_type);
 
 -- Workflow trigger type enum
 create type if not exists workflow_trigger_type as enum (

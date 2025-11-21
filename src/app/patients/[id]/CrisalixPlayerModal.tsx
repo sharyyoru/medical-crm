@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 
 type ReconstructionType = "breast" | "face" | "body";
@@ -63,6 +63,7 @@ export default function CrisalixPlayerModal({
 }) {
   const router = useRouter();
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const [loading, setLoading] = useState(false);
 
   useEffect(() => {
     if (!open || !playerId || !reconstructionType) return;
@@ -72,6 +73,7 @@ export default function CrisalixPlayerModal({
 
     async function init() {
       try {
+        setLoading(true);
         await loadPlayerScriptOnce();
         if (cancelled || !window.CrisalixPlayer) return;
 
@@ -100,8 +102,13 @@ export default function CrisalixPlayerModal({
         };
 
         player.render("surgeon", options);
+        if (!cancelled) {
+          setLoading(false);
+        }
       } catch {
-        // swallow player loading errors for now
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     }
 
@@ -122,7 +129,7 @@ export default function CrisalixPlayerModal({
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/60 px-4 py-6">
-      <div className="relative flex h-[80vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl bg-slate-950 text-slate-50 shadow-2xl">
+      <div className="relative flex h-[78vh] w-full max-w-4xl flex-col overflow-hidden rounded-2xl border border-slate-800 bg-slate-950 text-slate-50 shadow-2xl">
         <div className="flex items-center justify-between border-b border-slate-800 bg-slate-900/80 px-4 py-2 text-xs">
           <div className="flex items-center gap-2">
             <span className="rounded-full bg-sky-500 px-2 py-0.5 text-[10px] font-semibold text-white">
@@ -151,8 +158,16 @@ export default function CrisalixPlayerModal({
             </svg>
           </button>
         </div>
-        <div className="flex-1 bg-slate-950">
+        <div className="relative flex-1 bg-slate-950">
           <div ref={containerRef} className="h-full w-full" />
+          {loading ? (
+            <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center bg-slate-950/80">
+              <div className="mb-3 h-10 w-10 animate-spin rounded-full border-2 border-sky-400 border-t-transparent" />
+              <p className="text-[11px] font-medium text-slate-200">
+                Generating 3D simulation...
+              </p>
+            </div>
+          ) : null}
         </div>
       </div>
     </div>

@@ -150,6 +150,22 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  const data = await crisalixResponse.json();
+  const data = (await crisalixResponse.json()) as {
+    patient?: { id?: number | null; player_id?: string | null };
+  };
+
+  if (patientId && data.patient && data.patient.id != null) {
+    const typeForDb = reconstructionTypeRaw;
+    try {
+      await supabaseAdmin.from("crisalix_reconstructions").insert({
+        patient_id: patientId,
+        crisalix_patient_id: data.patient.id,
+        reconstruction_type: typeForDb,
+        player_id: data.patient.player_id ?? null,
+      });
+    } catch {
+    }
+  }
+
   return NextResponse.json(data);
 }

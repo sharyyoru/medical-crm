@@ -9,21 +9,65 @@ export default function Patient3DSetupPage() {
   const params = useParams<{ id: string }>();
   const router = useRouter();
 
-  const [step, setStep] = useState<"select" | "form">("select");
+  const [step, setStep] = useState<"select" | "choice" | "form">("select");
   const [type, setType] = useState<ReconstructionType | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [checkingExisting, setCheckingExisting] = useState(false);
+  const [existingPlayerId, setExistingPlayerId] = useState<string | null>(null);
 
   const patientId = params?.id ?? "";
 
-  function handleSelect(nextType: ReconstructionType) {
-    setType(nextType);
-    setStep("form");
+  async function handleSelect(nextType: ReconstructionType) {
     setError(null);
+    setCheckingExisting(true);
+    setType(nextType);
+    setExistingPlayerId(null);
+
+    try {
+      const response = await fetch("/api/crisalix/reconstructions/existing", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ patientId, reconstructionType: nextType }),
+      });
+
+      if (response.ok) {
+        const data = (await response.json()) as {
+          exists?: boolean;
+          playerId?: string | null;
+        };
+
+        if (data.exists && data.playerId) {
+          setExistingPlayerId(data.playerId);
+          setCheckingExisting(false);
+          setStep("choice");
+          return;
+        }
+      }
+    } catch {
+      // ignore and fall back to creating new
+    }
+
+    setCheckingExisting(false);
+    setStep("form");
   }
 
   function handleCancel() {
     router.push(`/patients/${patientId}?mode=medical`);
+  }
+
+  function handleUseExisting() {
+    if (!type || !existingPlayerId) return;
+
+    const url = `/patients/${patientId}?mode=medical&show3d=1&cr_player_id=${encodeURIComponent(
+      existingPlayerId,
+    )}&cr_type=${type}`;
+    router.push(url);
+  }
+
+  function handleCreateNew() {
+    setExistingPlayerId(null);
+    setStep("form");
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -125,7 +169,8 @@ export default function Patient3DSetupPage() {
               <button
                 type="button"
                 onClick={() => handleSelect("breast")}
-                className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-slate-700 shadow-sm hover:border-sky-300 hover:bg-sky-50"
+                className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-slate-700 shadow-sm hover:border-sky-300 hover:bg-sky-50 disabled:opacity-60"
+                disabled={checkingExisting}
               >
                 <span className="font-medium">Breast (Mammo)</span>
                 <span className="rounded-full bg-amber-400 px-2.5 py-0.5 text-[10px] font-semibold text-white">
@@ -136,7 +181,8 @@ export default function Patient3DSetupPage() {
               <button
                 type="button"
                 onClick={() => handleSelect("face")}
-                className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-slate-700 shadow-sm hover:border-sky-300 hover:bg-sky-50"
+                className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-slate-700 shadow-sm hover:border-sky-300 hover:bg-sky-50 disabled:opacity-60"
+                disabled={checkingExisting}
               >
                 <span className="font-medium">Face</span>
                 <span className="rounded-full bg-amber-400 px-2.5 py-0.5 text-[10px] font-semibold text-white">
@@ -147,12 +193,91 @@ export default function Patient3DSetupPage() {
               <button
                 type="button"
                 onClick={() => handleSelect("body")}
-                className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-slate-700 shadow-sm hover:border-sky-300 hover:bg-sky-50"
+                className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-slate-700 shadow-sm hover:border-sky-300 hover:bg-sky-50 disabled:opacity-60"
+                disabled={checkingExisting}
               >
                 <span className="font-medium">Body</span>
                 <span className="rounded-full bg-amber-400 px-2.5 py-0.5 text-[10px] font-semibold text-white">
                   Setup Required
                 </span>
+              </button>
+            </div>
+
+            <div className="mt-5 flex items-center justify-between">
+              {checkingExisting ? (
+                <p className="text-[11px] text-slate-500">
+                  Checking for existing 3D simulations...
+                </p>
+              ) : (
+                <span />
+              )}
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="inline-flex items-center rounded-full bg-slate-200 px-4 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-300"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        ) : step === "choice" ? (
+          <div className="p-6">
+            <div className="mb-4 flex items-start justify-between">
+              <div>
+                <h2 className="text-base font-semibold text-slate-900">
+                  Existing 3D reconstruction found
+                </h2>
+                <p className="mt-1 text-xs text-slate-500">
+                  This patient already has a 3D simulation for this reconstruction type. You can
+                  load the existing 3D or create a new one.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={handleCancel}
+                className="inline-flex h-7 w-7 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                aria-label="Close"
+              >
+                <svg
+                  className="h-3.5 w-3.5"
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.6"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <path d="M5 5l10 10M15 5L5 15" />
+                </svg>
+              </button>
+            </div>
+
+            <div className="mt-2 space-y-3 text-xs">
+              <button
+                type="button"
+                onClick={handleUseExisting}
+                className="flex w-full items-center justify-between rounded-xl border border-sky-300 bg-sky-600 px-4 py-3 text-left text-slate-50 shadow-sm hover:bg-sky-700"
+              >
+                <div>
+                  <p className="text-xs font-semibold">Load existing 3D simulation</p>
+                  <p className="mt-0.5 text-[11px] text-sky-100">
+                    Open the Crisalix viewer with the last saved 3D for this type.
+                  </p>
+                </div>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleCreateNew}
+                className="flex w-full items-center justify-between rounded-xl border border-slate-200 bg-slate-50 px-4 py-3 text-left text-slate-700 shadow-sm hover:border-amber-300 hover:bg-amber-50"
+              >
+                <div>
+                  <p className="text-xs font-semibold">Create a new 3D simulation</p>
+                  <p className="mt-0.5 text-[11px] text-slate-500">
+                    Start a new 3D reconstruction using the photos and measurements you
+                    provide.
+                  </p>
+                </div>
               </button>
             </div>
 
