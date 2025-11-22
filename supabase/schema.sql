@@ -368,6 +368,18 @@ create table if not exists tasks (
 create index if not exists tasks_patient_id_idx on tasks(patient_id);
 create index if not exists tasks_assigned_user_id_idx on tasks(assigned_user_id);
 
+-- Patient edit locks (which user is currently editing which patient)
+create table if not exists patient_edit_locks (
+  patient_id uuid primary key references patients(id) on delete cascade,
+  user_id uuid not null references users(id) on delete cascade,
+  user_name text,
+  user_avatar_url text,
+  updated_at timestamptz not null default now()
+);
+
+create index if not exists patient_edit_locks_user_id_idx
+  on patient_edit_locks(user_id);
+
 -- Consultation record type enum (aligns with medical tabs: notes onward)
 create type consultation_record_type as enum (
   'notes',

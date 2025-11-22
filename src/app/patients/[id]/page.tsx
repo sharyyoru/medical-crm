@@ -9,6 +9,7 @@ import PatientActivityCard from "./PatientActivityCard";
 import CrisalixPlayerModal from "./CrisalixPlayerModal";
 import MedicalConsultationsCard from "./MedicalConsultationsCard";
 import PatientModeInitializer from "./PatientModeInitializer";
+import PatientEditingPresence from "./PatientEditingPresence";
 import InvoicePaymentMethodFilter from "./InvoicePaymentMethodFilter";
 
 interface PatientDetailsProps {
@@ -319,7 +320,10 @@ export default async function PatientPage({
             <h1 className="text-lg font-semibold text-slate-900">
               {patient.first_name} {patient.last_name}
             </h1>
-            <PatientModeToggle patientId={patient.id} mode={mode} />
+            <div className="flex items-center gap-3">
+              <PatientModeToggle patientId={patient.id} mode={mode} />
+              <PatientEditingPresence patientId={patient.id} />
+            </div>
           </div>
           <div className="mt-1 flex items-center gap-3 text-xs">
             {genderRaw ? (
@@ -646,55 +650,15 @@ export default async function PatientPage({
                       {patient.first_name} {patient.last_name}
                     </p>
                   </div>
-                  <div className="flex items-center gap-2">
-                    <div className="inline-flex items-center rounded-full bg-slate-100 px-0.5 py-0.5 text-[11px] font-semibold text-slate-700">
-                      <span className="rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold text-white">
-                        Financial
-                      </span>
-                      <span className="ml-1 rounded-full bg-sky-500 px-3 py-1 text-[11px] font-semibold text-white">
-                        Medical
-                      </span>
-                    </div>
-                    <Link
-                      href={`/patients/${patient.id}/3d`}
-                      className="inline-flex items-center gap-1 rounded-full border border-sky-200/80 bg-sky-500 px-3 py-1 text-[11px] font-semibold text-white shadow-[0_6px_16px_rgba(37,99,235,0.35)] hover:bg-sky-600"
-                    >
-                      <span>3D</span>
-                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
-                        <svg
-                          className="h-3.5 w-3.5"
-                          viewBox="0 0 20 20"
-                          fill="none"
-                          xmlns="http://www.w3.org/2000/svg"
-                        >
-                          <path
-                            d="M4 7.5L10 4.5L16 7.5V12.5L10 15.5L4 12.5V7.5Z"
-                            stroke="currentColor"
-                            strokeWidth="1.4"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <path
-                            d="M10 4.5V10.5"
-                            stroke="currentColor"
-                            strokeWidth="1.4"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                          <path
-                            d="M4 7.5L10 10.5L16 7.5"
-                            stroke="currentColor"
-                            strokeWidth="1.4"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      </span>
-                    </Link>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <InvoicePaymentMethodFilter
+                      patientId={patient.id}
+                      value={paymentMethodFilter}
+                    />
                   </div>
                 </div>
 
-                <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
                   <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
                     <p className="text-[11px] font-medium text-slate-500">
                       Total Amount
@@ -726,19 +690,6 @@ export default async function PatientPage({
                     <p className="mt-1 text-base font-semibold text-slate-900">
                       {invoiceSummary.totalComplimentary.toFixed(2)} CHF
                     </p>
-                  </div>
-                  <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-[11px] font-medium text-slate-500">
-                        Before and After
-                      </p>
-                      <button
-                        type="button"
-                        className="inline-flex items-center rounded-full border border-sky-200/80 bg-sky-600 px-3 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-sky-700"
-                      >
-                        View
-                      </button>
-                    </div>
                   </div>
                 </div>
               </div>
