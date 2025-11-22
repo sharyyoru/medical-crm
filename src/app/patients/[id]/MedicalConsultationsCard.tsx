@@ -1190,8 +1190,7 @@ export default function MedicalConsultationsCard({
                       .toString(36)
                       .toUpperCase()}`;
                     const effectiveTitle =
-                      consultationTitle.trim() ||
-                      `Consultation ${consultationId}`;
+                      consultationTitle.trim() || consultationId;
 
                     const { data: authData } =
                       await supabaseClient.auth.getUser();
@@ -1339,7 +1338,9 @@ export default function MedicalConsultationsCard({
 
                       const paymentMethodLabel = invoicePaymentMethod.trim();
 
-                      let headerHtml = `<p class="mb-1 text-[11px]"><strong>Invoice</strong></p><p class="mb-0.5 text-[11px] text-slate-700"><strong>Payment method:</strong> ${paymentMethodLabel}</p><p class="mb-0.5 text-[11px] text-slate-700"><strong>Payment terms:</strong> ${paymentTermLabel}</p>`;
+                      const invoiceIdLabel = consultationId;
+
+                      let headerHtml = `<p class="mb-1 text-[11px]"><strong>Invoice #${invoiceIdLabel}</strong></p><p class="mb-0.5 text-[11px] text-slate-700"><strong>Payment method:</strong> ${paymentMethodLabel}</p><p class="mb-0.5 text-[11px] text-slate-700"><strong>Payment terms:</strong> ${paymentTermLabel}</p>`;
 
                       if (extraOptionLabel) {
                         headerHtml += `<p class="mb-0.5 text-[11px] text-slate-700"><strong>Extra option:</strong> ${extraOptionLabel}</p>`;
@@ -2508,14 +2509,24 @@ export default function MedicalConsultationsCard({
                     ? scheduled.toLocaleString()
                     : "";
 
-                const recordTypeLabel =
+                const isNotes = row.record_type === "notes";
+                const isPrescription = row.record_type === "prescription";
+                const isInvoice = row.record_type === "invoice";
+
+                const baseRecordTypeLabel =
                   consultationRecordTypeOptions.find(
                     (opt) => opt.value === row.record_type,
                   )?.label ?? "Unknown";
 
-                const isNotes = row.record_type === "notes";
-                const isPrescription = row.record_type === "prescription";
-                const isInvoice = row.record_type === "invoice";
+                const recordTypeLabel = baseRecordTypeLabel;
+
+                const displayTitle = (() => {
+                  const title = row.title ?? "";
+                  const prefix = "Consultation ";
+                  return title.startsWith(prefix)
+                    ? title.slice(prefix.length)
+                    : title;
+                })();
 
                 const isComplimentaryInvoice =
                   isInvoice &&
@@ -2621,7 +2632,7 @@ export default function MedicalConsultationsCard({
 
                     <div className="mt-2 text-[11px] text-slate-800">
                       <div className="flex flex-wrap items-center gap-2">
-                        <div className="font-semibold">{row.title}</div>
+                        <div className="font-semibold">{displayTitle}</div>
                         {isComplimentaryInvoice ? (
                           <span className="inline-flex items-center rounded-full bg-emerald-100 px-2 py-0.5 text-[10px] font-medium text-emerald-800">
                             Complimentary service
