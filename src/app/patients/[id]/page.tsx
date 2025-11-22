@@ -8,6 +8,7 @@ import PatientCrmPreferencesCard from "./PatientCrmPreferencesCard";
 import PatientActivityCard from "./PatientActivityCard";
 import CrisalixPlayerModal from "./CrisalixPlayerModal";
 import MedicalConsultationsCard from "./MedicalConsultationsCard";
+import PatientDocumentsTab from "./PatientDocumentsTab";
 import PatientModeInitializer from "./PatientModeInitializer";
 import PatientEditingPresence from "./PatientEditingPresence";
 import InvoicePaymentMethodFilter from "./InvoicePaymentMethodFilter";
@@ -289,11 +290,8 @@ export default async function PatientPage({
     { id: "notes", label: "Notes" },
     { id: "prescription", label: "Prescription" },
     { id: "invoice", label: "Invoice" },
-    { id: "file", label: "File" },
-    { id: "photo", label: "Photo" },
     { id: "patient_information", label: "Patient Information" },
     { id: "documents", label: "Documents" },
-    { id: "form_photos", label: "Form Photos" },
   ];
 
   let genderClasses = "bg-slate-50 text-slate-700 border-slate-200";
@@ -726,12 +724,7 @@ export default async function PatientPage({
           ) : null}
 
           {medicalTab === "documents" ? (
-            <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
-              <h3 className="text-sm font-semibold text-slate-900">Documents</h3>
-              <p className="mt-2 text-xs text-slate-500">
-                Medical documents and reports for this patient will appear here.
-              </p>
-            </div>
+            <PatientDocumentsTab patientId={patient.id} />
           ) : null}
 
           {medicalTab === "form_photos" ? (
