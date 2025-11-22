@@ -2499,21 +2499,6 @@ export default function MedicalConsultationsCard({
             </div>
           ) : (
             <div className="space-y-3">
-              <div className="flex items-center justify-between gap-3">
-                <div className="flex items-start gap-2">
-                  <span className="inline-flex items-center rounded-full bg-slate-900 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-white">
-                    Type
-                  </span>
-                  <div className="text-[11px] text-slate-700">
-                    <div className="font-medium">
-                      Doctor
-                    </div>
-                    <div className="mt-0.5 text-[10px] text-slate-500">
-                      Scheduled
-                    </div>
-                  </div>
-                </div>
-              </div>
               {filteredSortedConsultations.map((row) => {
                 const scheduled = row.scheduled_at
                   ? new Date(row.scheduled_at)
