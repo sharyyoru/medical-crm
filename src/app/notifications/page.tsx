@@ -379,7 +379,7 @@ export default function NotificationsPage() {
                     key={row.id}
                     href={
                       patient
-                        ? `/patients/${patient.id}?tab=tasks`
+                        ? `/patients/${patient.id}?mode=crm&tab=tasks`
                         : "#"
                     }
                     onClick={() => void handleMarkNotificationRead(row)}

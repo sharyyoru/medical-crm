@@ -368,6 +368,44 @@ create table if not exists tasks (
 create index if not exists tasks_patient_id_idx on tasks(patient_id);
 create index if not exists tasks_assigned_user_id_idx on tasks(assigned_user_id);
 
+-- Consultation record type enum (aligns with medical tabs: notes onward)
+create type consultation_record_type as enum (
+  'notes',
+  'prescription',
+  'invoice',
+  'file',
+  'photo',
+  'patient_information',
+  'documents',
+  'form_photos'
+);
+
+-- Consultations linked to a patient
+create table if not exists consultations (
+  id uuid primary key default gen_random_uuid(),
+  patient_id uuid not null references patients(id) on delete cascade,
+  consultation_id text not null,
+  title text not null,
+  record_type consultation_record_type not null,
+  doctor_user_id uuid references users(id),
+  doctor_name text,
+  scheduled_at timestamptz not null,
+  payment_method text,
+  content text,
+  duration_seconds integer,
+  invoice_total_amount numeric(12, 2),
+  invoice_is_complimentary boolean not null default false,
+  invoice_is_paid boolean not null default false,
+  cash_receipt_path text,
+  created_by_user_id uuid references users(id),
+  created_by_name text,
+  created_at timestamptz default now(),
+  is_archived boolean not null default false,
+  archived_at timestamptz
+);
+
+create index if not exists consultations_patient_id_idx on consultations(patient_id);
+
 -- Comments on tasks
 create table if not exists task_comments (
   id uuid primary key default gen_random_uuid(),
@@ -420,6 +458,28 @@ create table if not exists services (
 create index if not exists services_category_id_idx on services(category_id);
 create unique index if not exists services_category_id_name_key
   on services(category_id, name);
+
+-- Service groups (bundles of services)
+create table if not exists service_groups (
+  id uuid primary key default gen_random_uuid(),
+  name text not null,
+  description text,
+  created_at timestamptz default now()
+);
+
+create unique index if not exists service_groups_name_key
+  on service_groups(name);
+
+-- Many-to-many relation between service groups and services
+create table if not exists service_group_services (
+  id uuid primary key default gen_random_uuid(),
+  group_id uuid not null references service_groups(id) on delete cascade,
+  service_id uuid not null references services(id) on delete restrict,
+  created_at timestamptz default now()
+);
+
+create unique index if not exists service_group_services_group_service_key
+  on service_group_services(group_id, service_id);
 
 -- Seed initial Services data: Aesthetics category and core services
 insert into service_categories (id, name, description, sort_order)

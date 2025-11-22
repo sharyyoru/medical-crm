@@ -19,9 +19,25 @@ type Service = {
   base_price: number | null;
 };
 
+type ServiceGroup = {
+  id: string;
+  name: string;
+  description: string | null;
+  discount_percent: number | null;
+};
+
+type ServiceGroupService = {
+  id: string;
+  group_id: string;
+  service_id: string;
+  discount_percent: number | null;
+};
+
 export default function ServicesPage() {
   const [categories, setCategories] = useState<ServiceCategory[]>([]);
   const [services, setServices] = useState<Service[]>([]);
+  const [serviceGroups, setServiceGroups] = useState<ServiceGroup[]>([]);
+  const [groupServices, setGroupServices] = useState<ServiceGroupService[]>([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,12 +54,27 @@ export default function ServicesPage() {
   const [creatingService, setCreatingService] = useState(false);
   const [serviceMessage, setServiceMessage] = useState<string | null>(null);
 
-  const [activeTab, setActiveTab] = useState<"categories" | "services">(
-    "categories",
-  );
+  const [newGroupName, setNewGroupName] = useState("");
+  const [newGroupDescription, setNewGroupDescription] = useState("");
+  const [newGroupDiscountPercent, setNewGroupDiscountPercent] = useState("");
+  const [selectedGroupServiceIds, setSelectedGroupServiceIds] = useState<
+    string[]
+  >([]);
+  const [groupServiceDiscountInputs, setGroupServiceDiscountInputs] = useState<
+    Record<string, string>
+  >({});
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [groupMessage, setGroupMessage] = useState<string | null>(null);
+
+  const [activeTab, setActiveTab] = useState<
+    "categories" | "services" | "groups"
+  >("categories");
 
   const [categorySearch, setCategorySearch] = useState("");
   const [serviceSearch, setServiceSearch] = useState("");
+
+  const [groupSearch, setGroupSearch] = useState("");
+  const [groupServiceSearch, setGroupServiceSearch] = useState("");
 
   const [editingCategoryId, setEditingCategoryId] = useState<string | null>(
     null,
@@ -67,6 +98,7 @@ export default function ServicesPage() {
   const [deletingServiceId, setDeletingServiceId] = useState<string | null>(
     null,
   );
+  const [deletingGroupId, setDeletingGroupId] = useState<string | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -124,6 +156,37 @@ export default function ServicesPage() {
         }));
 
         setServices(serviceRows as Service[]);
+
+        const { data: groupData, error: groupError } = await supabaseClient
+          .from("service_groups")
+          .select("id, name, description, discount_percent")
+          .order("name", { ascending: true });
+
+        if (!isMounted) return;
+
+        if (groupError || !groupData) {
+          setServiceGroups([]);
+          setGroupServices([]);
+          setLoading(false);
+          return;
+        }
+
+        setServiceGroups(groupData as ServiceGroup[]);
+
+        const { data: groupServiceData, error: groupServiceError } =
+          await supabaseClient
+            .from("service_group_services")
+            .select("id, group_id, service_id, discount_percent");
+
+        if (!isMounted) return;
+
+        if (groupServiceError || !groupServiceData) {
+          setGroupServices([]);
+          setLoading(false);
+          return;
+        }
+
+        setGroupServices(groupServiceData as ServiceGroupService[]);
 
         if (!selectedCategoryId && categoryRows.length > 0) {
           setSelectedCategoryId(categoryRows[0].id);
@@ -257,6 +320,113 @@ export default function ServicesPage() {
       setServiceMessage("Failed to create service.");
     } finally {
       setCreatingService(false);
+    }
+  }
+
+  async function handleCreateGroup(event: FormEvent) {
+    event.preventDefault();
+
+    const name = newGroupName.trim();
+    if (!name) {
+      setGroupMessage("Please enter a group name.");
+      return;
+    }
+
+    let groupDiscount: number | null = null;
+    if (newGroupDiscountPercent.trim()) {
+      const parsed = Number(newGroupDiscountPercent.replace(",", "."));
+      if (Number.isNaN(parsed) || parsed < 0 || parsed > 100) {
+        setGroupMessage(
+          "Please enter a valid group discount between 0 and 100.",
+        );
+        return;
+      }
+      groupDiscount = parsed;
+    }
+
+    try {
+      setCreatingGroup(true);
+      setGroupMessage(null);
+
+      const { data: groupData, error: groupError } = await supabaseClient
+        .from("service_groups")
+        .insert({
+          name,
+          description: newGroupDescription.trim() || null,
+          discount_percent: groupDiscount,
+        })
+        .select("id, name, description, discount_percent")
+        .single();
+
+      if (groupError || !groupData) {
+        setGroupMessage(groupError?.message ?? "Failed to create group.");
+        return;
+      }
+
+      const createdGroup = groupData as ServiceGroup;
+
+      let createdLinks: ServiceGroupService[] = [];
+      if (selectedGroupServiceIds.length > 0) {
+        const rows: {
+          group_id: string;
+          service_id: string;
+          discount_percent: number | null;
+        }[] = [];
+
+        for (const serviceId of selectedGroupServiceIds) {
+          const rawDiscount =
+            (groupServiceDiscountInputs[serviceId] ?? "").trim();
+          let discount: number | null = null;
+          if (rawDiscount) {
+            const parsed = Number(rawDiscount.replace(",", "."));
+            if (Number.isNaN(parsed) || parsed < 0 || parsed > 100) {
+              setGroupMessage(
+                "Please enter valid item discounts between 0 and 100.",
+              );
+              setCreatingGroup(false);
+              return;
+            }
+            discount = parsed;
+          }
+
+          rows.push({
+            group_id: createdGroup.id,
+            service_id: serviceId,
+            discount_percent: discount,
+          });
+        }
+
+        const { data: linkData, error: linkError } = await supabaseClient
+          .from("service_group_services")
+          .insert(rows)
+          .select("id, group_id, service_id, discount_percent");
+
+        if (linkError || !linkData) {
+          setGroupMessage(linkError?.message ?? "Group created, but linking services failed.");
+        } else {
+          createdLinks = linkData as ServiceGroupService[];
+        }
+      }
+
+      setServiceGroups((prev) =>
+        [...prev, createdGroup].sort((a, b) =>
+          a.name.localeCompare(b.name),
+        ),
+      );
+      if (createdLinks.length > 0) {
+        setGroupServices((prev) => [...prev, ...createdLinks]);
+      }
+
+      setNewGroupName("");
+      setNewGroupDescription("");
+      setSelectedGroupServiceIds([]);
+      setNewGroupDiscountPercent("");
+      setGroupServiceDiscountInputs({});
+      setGroupMessage("Group created.");
+    } catch {
+      setGroupMessage("Failed to create group.");
+    } finally {
+      setCreatingGroup(false);
     }
   }
 
@@ -470,7 +640,36 @@ export default function ServicesPage() {
     }
   }
 
+  async function handleDeleteGroup(groupId: string) {
+    try {
+      setDeletingGroupId(groupId);
+      setGroupMessage(null);
+
+      const { error: deleteError } = await supabaseClient
+        .from("service_groups")
+        .delete()
+        .eq("id", groupId);
+
+      if (deleteError) {
+        setGroupMessage(deleteError.message ?? "Failed to delete group.");
+        return;
+      }
+
+      setServiceGroups((prev) => prev.filter((group) => group.id !== groupId));
+      setGroupServices((prev) =>
+        prev.filter((link) => link.group_id !== groupId),
+      );
+
+      setGroupMessage("Group deleted.");
+    } catch {
+      setGroupMessage("Failed to delete group.");
+    } finally {
+      setDeletingGroupId(null);
+    }
+  }
+
   const categoriesById = new Map(categories.map((c) => [c.id, c] as const));
+  const servicesById = new Map(services.map((s) => [s.id, s] as const));
 
   return (
     <div className="space-y-6">
@@ -505,6 +704,18 @@ export default function ServicesPage() {
           }
         >
           Services
+        </button>
+        <button
+          type="button"
+          onClick={() => setActiveTab("groups")}
+          className={
+            "rounded-full px-2 py-0.5 text-[11px] " +
+            (activeTab === "groups"
+              ? "bg-slate-900 text-white shadow-sm"
+              : "text-slate-600 hover:text-slate-900")
+          }
+        >
+          Groups
         </button>
       </div>
 
@@ -979,6 +1190,316 @@ export default function ServicesPage() {
             {error ? (
               <p className="mt-2 text-xs text-red-600">{error}</p>
             ) : null}
+          </div>
+        </div>
+      ) : null}
+
+      {activeTab === "groups" ? (
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,3fr)_minmax(0,2fr)]">
+          <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
+            <h2 className="text-sm font-medium text-slate-800">New group</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Create reusable bundles of services that can be referenced elsewhere.
+            </p>
+            <form onSubmit={handleCreateGroup} className="mt-3 space-y-3">
+              <div>
+                <label className="block text-xs font-medium text-slate-700">
+                  Group name
+                </label>
+                <input
+                  type="text"
+                  value={newGroupName}
+                  onChange={(event) => setNewGroupName(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-900 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  placeholder="Pre-op bundle"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium text-slate-700">
+                  Description (optional)
+                </label>
+                <textarea
+                  value={newGroupDescription}
+                  onChange={(event) => setNewGroupDescription(event.target.value)}
+                  className="mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs text-slate-900 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  rows={2}
+                  placeholder="Example: Common services for a standard pre-op visit"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700">
+                  Group discount (%)
+                </label>
+                <div className="mt-1 flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.5"
+                    value={newGroupDiscountPercent}
+                    onChange={(event) =>
+                      setNewGroupDiscountPercent(event.target.value)
+                    }
+                    className="w-20 rounded-lg border border-slate-200 bg-white px-2 py-1.5 text-xs text-slate-900 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                    placeholder="0"
+                  />
+                  <span className="text-[11px] text-slate-500">
+                    Applied to all services in the group that do not have an
+                    item-specific discount.
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-medium text-slate-700">
+                  Services in this group
+                </label>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  Select one or more services to bundle. You can update groups later in the
+                  database if needed.
+                </p>
+                <div className="mt-2">
+                  <input
+                    type="text"
+                    value={groupServiceSearch}
+                    onChange={(event) => setGroupServiceSearch(event.target.value)}
+                    placeholder="Search services by name or category..."
+                    className="w-full rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] text-slate-900 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                  />
+                </div>
+                <div className="mt-2 max-h-64 space-y-1 overflow-y-auto rounded-lg border border-slate-200 bg-slate-50/70 p-2">
+                  {services.length === 0 ? (
+                    <p className="text-[11px] text-slate-500">
+                      No services available yet.
+                    </p>
+                  ) : (
+                    services
+                      .filter((service) => {
+                        const term = groupServiceSearch.trim().toLowerCase();
+                        if (!term) return true;
+                        const category = categoriesById.get(service.category_id);
+                        const haystack = `${service.name} ${
+                          service.description ?? ""
+                          } ${category ? category.name : ""}`.toLowerCase();
+                        return haystack.includes(term);
+                      })
+                      .map((service) => {
+                        const category = categoriesById.get(service.category_id);
+                        const checked = selectedGroupServiceIds.includes(service.id);
+                        const discountInput =
+                          groupServiceDiscountInputs[service.id] ?? "";
+                        return (
+                          <label
+                            key={service.id}
+                            className="flex cursor-pointer items-center justify-between rounded-md bg-white px-2 py-1 text-[11px] text-slate-700 shadow-sm hover:bg-slate-50"
+                          >
+                            <span className="flex items-center gap-2">
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={(event) => {
+                                  const isChecked = event.target.checked;
+                                  setSelectedGroupServiceIds((prev) =>
+                                    isChecked
+                                      ? [...prev, service.id]
+                                      : prev.filter((id) => id !== service.id),
+                                  );
+                                }}
+                                className="h-3 w-3 rounded border-slate-300 text-emerald-500 focus:ring-emerald-400"
+                              />
+                              <span>
+                                <span className="font-medium text-slate-900">
+                                  {service.name}
+                                </span>
+                                <span className="ml-1 text-[10px] text-slate-500">
+                                  {category ? `(${category.name})` : ""}
+                                </span>
+                              </span>
+                            </span>
+                            <span className="flex items-center gap-2 text-[10px] text-slate-600">
+                              <span>
+                                {service.base_price !== null
+                                  ? `CHF ${service.base_price.toFixed(2)}`
+                                  : "CHF —"}
+                              </span>
+                              <input
+                                type="number"
+                                min="0"
+                                max="100"
+                                step="0.5"
+                                value={discountInput}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  setGroupServiceDiscountInputs((prev) => ({
+                                    ...prev,
+                                    [service.id]: value,
+                                  }));
+                                }}
+                                className="w-14 rounded border border-slate-200 bg-white px-1 py-0.5 text-right text-[10px] text-slate-900 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                                placeholder="%"
+                              />
+                            </span>
+                          </label>
+                        );
+                      })
+                  )}
+                </div>
+              </div>
+
+              {groupMessage ? (
+                <p className="text-xs text-slate-500">{groupMessage}</p>
+              ) : null}
+
+              <button
+                type="submit"
+                disabled={creatingGroup}
+                className="inline-flex items-center justify-center rounded-full bg-emerald-500 px-4 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-emerald-600 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {creatingGroup ? "Creating..." : "Create group"}
+              </button>
+            </form>
+          </div>
+
+          <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
+            <h2 className="text-sm font-medium text-slate-800">Groups</h2>
+            <p className="mt-1 text-xs text-slate-500">
+              Existing service bundles.
+            </p>
+            <div className="mt-2">
+              <input
+                type="text"
+                value={groupSearch}
+                onChange={(event) => setGroupSearch(event.target.value)}
+                placeholder="Search groups..."
+                className="w-full rounded-full border border-slate-200 bg-white px-3 py-1.5 text-[11px] text-slate-900 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+              />
+            </div>
+            {loading ? (
+              <p className="mt-2 text-xs text-slate-500">Loading groups...</p>
+            ) : serviceGroups.length === 0 ? (
+              <p className="mt-2 text-xs text-slate-500">No groups yet.</p>
+            ) : (
+              <ul className="mt-3 space-y-1 text-xs text-slate-700">
+                {serviceGroups
+                  .slice()
+                  .sort((a, b) => a.name.localeCompare(b.name))
+                  .filter((group) => {
+                    const term = groupSearch.trim().toLowerCase();
+                    if (!term) return true;
+                    const haystack = `${group.name} ${
+                      group.description ?? ""
+                    }`.toLowerCase();
+                    return haystack.includes(term);
+                  })
+                  .map((group) => {
+                    const links = groupServices.filter(
+                      (link) => link.group_id === group.id,
+                    );
+                    const linkedServices = links
+                      .map((link) => servicesById.get(link.service_id))
+                      .filter((s): s is Service => Boolean(s));
+
+                    const linkByServiceId = new Map(
+                      links.map((link) => [link.service_id, link] as const),
+                    );
+                    const groupDiscountPercent = group.discount_percent ?? 0;
+
+                    const originalTotal = linkedServices.reduce((sum, service) => {
+                      const price = service.base_price ?? 0;
+                      return sum + price;
+                    }, 0);
+
+                    const groupTotal = linkedServices.reduce((sum, service) => {
+                      const price = service.base_price ?? 0;
+                      const link = linkByServiceId.get(service.id);
+                      let discountPercent =
+                        link && link.discount_percent !== null
+                          ? link.discount_percent
+                          : groupDiscountPercent;
+                      if (!Number.isFinite(discountPercent) || discountPercent < 0) {
+                        discountPercent = 0;
+                      }
+                      if (discountPercent > 100) discountPercent = 100;
+                      const discountedPrice =
+                        price * (1 - (discountPercent as number) / 100);
+                      return sum + discountedPrice;
+                    }, 0);
+
+                    const hasDiscount =
+                      originalTotal > 0 && groupTotal < originalTotal - 0.005;
+
+                    return (
+                      <li
+                        key={group.id}
+                        className="space-y-1 rounded-md bg-slate-50/70 px-2 py-2"
+                      >
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <div className="font-medium text-slate-900">
+                              {group.name}
+                            </div>
+                            {group.description ? (
+                              <div className="text-[11px] text-slate-500">
+                                {group.description}
+                              </div>
+                            ) : null}
+                            <div className="mt-1 text-[11px] text-slate-500">
+                              {linkedServices.length} service
+                              {linkedServices.length === 1 ? "" : "s"}
+                              {originalTotal > 0 ? (
+                                hasDiscount ? (
+                                  <span className="ml-1 text-slate-400">
+                                    · CHF {originalTotal.toFixed(2)} → CHF {groupTotal.toFixed(2)}
+                                  </span>
+                                ) : (
+                                  <span className="ml-1 text-slate-400">
+                                    · Total CHF {groupTotal.toFixed(2)}
+                                  </span>
+                                )
+                              ) : null}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => void handleDeleteGroup(group.id)}
+                            disabled={deletingGroupId === group.id}
+                            className="inline-flex items-center rounded-full border border-red-100 bg-red-50 px-2 py-0.5 text-[11px] font-medium text-red-600 shadow-sm hover:bg-red-100 disabled:cursor-not-allowed disabled:opacity-60"
+                          >
+                            {deletingGroupId === group.id ? "Deleting..." : "Delete"}
+                          </button>
+                        </div>
+                        {linkedServices.length > 0 ? (
+                          <ul className="mt-1 space-y-0.5 text-[11px] text-slate-600">
+                            {linkedServices.map((service) => {
+                              const category = categoriesById.get(
+                                service.category_id,
+                              );
+                              return (
+                                <li key={service.id} className="flex justify-between">
+                                  <span>
+                                    {service.name}
+                                    {category ? (
+                                      <span className="ml-1 text-[10px] text-slate-400">
+                                        ({category.name})
+                                      </span>
+                                    ) : null}
+                                  </span>
+                                  <span className="text-[10px] text-slate-500">
+                                    {service.base_price !== null
+                                      ? `CHF ${service.base_price.toFixed(2)}`
+                                      : "CHF —"}
+                                  </span>
+                                </li>
+                              );
+                            })}
+                          </ul>
+                        ) : null}
+                      </li>
+                    );
+                  })}
+              </ul>
+            )}
           </div>
         </div>
       ) : null}

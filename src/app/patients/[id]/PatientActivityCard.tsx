@@ -304,6 +304,8 @@ export default function PatientActivityCard({
   const router = useRouter();
 
   const [composeFromQueryHandled, setComposeFromQueryHandled] = useState(false);
+  const [createTaskFromQueryHandled, setCreateTaskFromQueryHandled] =
+    useState(false);
 
   useEffect(() => {
     const tabParam = searchParams.get("tab");
@@ -655,6 +657,31 @@ export default function PatientActivityCard({
       setComposeFromQueryHandled(true);
     }
   }, [searchParams, defaultEmailTo, emailModalOpen, composeFromQueryHandled]);
+
+  useEffect(() => {
+    if (createTaskFromQueryHandled) return;
+
+    const createTaskParam = searchParams.get("createTask");
+    if (!createTaskParam || createTaskModalOpen) return;
+
+    if (
+      createTaskParam === "1" ||
+      createTaskParam === "true" ||
+      createTaskParam === "task"
+    ) {
+      setActiveTab("tasks");
+      setTaskSaveError(null);
+      setEditTask(null);
+      setTaskName("");
+      setTaskContent("");
+      setTaskActivityDate("");
+      setTaskAssignedUserId("");
+      setTaskPriority("medium");
+      setTaskType("todo");
+      setCreateTaskModalOpen(true);
+      setCreateTaskFromQueryHandled(true);
+    }
+  }, [searchParams, createTaskModalOpen, createTaskFromQueryHandled]);
 
   useEffect(() => {
     let isMounted = true;
@@ -1128,6 +1155,7 @@ export default function PatientActivityCard({
       setEditTask(null);
       setCreateTaskModalOpen(false);
       setTaskSaving(false);
+      router.replace(`/patients/${patientId}?tab=tasks`);
     } catch {
       setTaskSaveError("Unexpected error saving task.");
       setTaskSaving(false);
@@ -3294,6 +3322,7 @@ export default function PatientActivityCard({
                     setCreateTaskModalOpen(false);
                     setTaskSaveError(null);
                     setEditTask(null);
+                    router.replace(`/patients/${patientId}?tab=tasks`);
                   }}
                   className="inline-flex items-center rounded-full border border-slate-200/80 bg-white px-3 py-1.5 text-[11px] font-medium text-slate-700 shadow-sm hover:bg-slate-50"
                 >

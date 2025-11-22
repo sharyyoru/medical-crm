@@ -9,6 +9,7 @@ interface ProfileState {
   email: string;
   avatarUrl: string | null;
   signatureHtml: string;
+  priorityMode: "crm" | "medical";
 }
 
 export default function ProfileSettingsForm() {
@@ -38,11 +39,16 @@ export default function ProfileSettingsForm() {
       const fullName = [firstName, lastName].filter(Boolean).join(" ") ||
         (user.email ?? "");
 
+      const rawPriority = (meta["priority_mode"] as string) || "";
+      const priorityMode: "crm" | "medical" =
+        rawPriority === "medical" ? "medical" : "crm";
+
       setProfile({
         fullName,
         email: user.email ?? "",
         avatarUrl: (meta["avatar_url"] as string) || null,
         signatureHtml: (meta["signature_html"] as string) || "",
+        priorityMode,
       });
     }
 
@@ -133,9 +139,35 @@ export default function ProfileSettingsForm() {
       }
 
       setProfile({ ...profile, signatureHtml: profile.signatureHtml });
-      setSuccess("Signature saved.");
+      setSuccess("Settings saved.");
     } catch (err) {
       setError("Unexpected error saving signature.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function handlePriorityChange(nextMode: "crm" | "medical") {
+    if (!profile) return;
+
+    setProfile((prev) => (prev ? { ...prev, priorityMode: nextMode } : prev));
+
+    try {
+      setSaving(true);
+      setError(null);
+
+      const { error: updateError } = await supabaseClient.auth.updateUser({
+        data: {
+          priority_mode: nextMode,
+        },
+      });
+
+      if (updateError) {
+        setError(updateError.message);
+        return;
+      }
+    } catch {
+      setError("Unexpected error saving priority.");
     } finally {
       setSaving(false);
     }
@@ -220,6 +252,7 @@ export default function ProfileSettingsForm() {
             className="block w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs font-mono text-slate-900 shadow-[0_4px_14px_rgba(15,23,42,0.08)] focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
             placeholder="&lt;p&gt;Dr. Jane Doe&lt;br/&gt;Clinic Name&lt;br/&gt;&lt;a href='tel:+971...'&gt;+971 ...&lt;/a&gt;&lt;/p&gt;"
           />
+
           {error ? <p className="text-xs text-red-600">{error}</p> : null}
           {success ? <p className="text-xs text-emerald-600">{success}</p> : null}
           <button
@@ -244,6 +277,44 @@ export default function ProfileSettingsForm() {
               Your saved HTML signature will appear here.
             </p>
           )}
+        </div>
+      </section>
+
+      <section className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
+        <h2 className="text-sm font-medium text-slate-900">Priority</h2>
+        <p className="mt-1 text-xs text-slate-500">
+          Choose which view opens by default when you open a patient. Changes are saved
+          automatically when you switch.
+        </p>
+        <div className="mt-3 inline-flex rounded-full border border-slate-200 bg-slate-50/80 p-0.5 text-[11px] text-slate-600">
+          <button
+            type="button"
+            onClick={() => {
+              void handlePriorityChange("crm");
+            }}
+            className={
+              "rounded-full px-3 py-1 text-[11px] " +
+              (profile.priorityMode === "crm"
+                ? "bg-emerald-500 text-white shadow-sm"
+                : "text-slate-600 hover:text-slate-900")
+            }
+          >
+            CRM
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              void handlePriorityChange("medical");
+            }}
+            className={
+              "rounded-full px-3 py-1 text-[11px] " +
+              (profile.priorityMode === "medical"
+                ? "bg-sky-600 text-white shadow-sm"
+                : "text-slate-600 hover:text-slate-900")
+            }
+          >
+            Medical
+          </button>
         </div>
       </section>
     </div>

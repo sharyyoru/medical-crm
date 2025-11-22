@@ -36,6 +36,8 @@ export default function MessagesPage() {
   const { setUnreadCountOptimistic, refreshUnread } = useMessagesUnread();
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
+  const [priorityMode, setPriorityMode] = useState<"crm" | "medical">("crm");
+
   useEffect(() => {
     let isMounted = true;
 
@@ -54,6 +56,12 @@ export default function MessagesPage() {
           setLoading(false);
           return;
         }
+
+        const meta = (user.user_metadata || {}) as Record<string, unknown>;
+        const rawPriority = (meta["priority_mode"] as string) || "";
+        const next: "crm" | "medical" =
+          rawPriority === "medical" ? "medical" : "crm";
+        setPriorityMode(next);
 
         const { data, error } = await supabaseClient
           .from("patient_note_mentions")
@@ -120,6 +128,13 @@ export default function MessagesPage() {
     } catch {
       setMarkingRead(false);
     }
+  }
+
+  function buildPatientHref(id: string) {
+    if (priorityMode === "medical") {
+      return `/patients/${id}?mode=medical`;
+    }
+    return `/patients/${id}`;
   }
 
   useEffect(() => {
@@ -220,7 +235,7 @@ export default function MessagesPage() {
                 return (
                   <Link
                     key={mention.id}
-                    href={patient ? `/patients/${patient.id}` : "#"}
+                    href={patient ? buildPatientHref(patient.id) : "#"}
                     onClick={() => handleOpenMention(mention)}
                     className="block rounded-lg bg-slate-50/80 px-3 py-2 hover:bg-slate-100 transition-colors"
                   >

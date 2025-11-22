@@ -422,7 +422,7 @@ export default function TasksPage() {
                       <td className="py-2 pr-3 align-top text-slate-800">
                         {patient ? (
                           <Link
-                            href={`/patients/${patient.id}?tab=tasks`}
+                            href={`/patients/${patient.id}?mode=crm&tab=tasks`}
                             className="text-sky-700 underline-offset-2 hover:underline"
                           >
                             {patientName}
@@ -465,7 +465,7 @@ export default function TasksPage() {
                         <div className="flex flex-wrap items-center gap-2">
                           {patient ? (
                             <Link
-                              href={`/patients/${patient.id}?tab=tasks`}
+                              href={`/patients/${patient.id}?mode=crm&tab=tasks`}
                               className="inline-flex items-center rounded-full border border-slate-200/80 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-700 shadow-sm hover:bg-slate-50"
                             >
                               View

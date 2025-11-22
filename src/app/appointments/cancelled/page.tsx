@@ -23,6 +23,8 @@ export default function CancelledAppointmentsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [priorityMode, setPriorityMode] = useState<"crm" | "medical">("crm");
+
   useEffect(() => {
     let isMounted = true;
 
@@ -30,6 +32,18 @@ export default function CancelledAppointmentsPage() {
       try {
         setLoading(true);
         setError(null);
+
+        try {
+          const { data: authData } = await supabaseClient.auth.getUser();
+          if (isMounted && authData?.user) {
+            const meta = (authData.user.user_metadata || {}) as Record<string, unknown>;
+            const rawPriority = (meta["priority_mode"] as string) || "";
+            const next: "crm" | "medical" =
+              rawPriority === "medical" ? "medical" : "crm";
+            setPriorityMode(next);
+          }
+        } catch {
+        }
 
         const { data, error } = await supabaseClient
           .from("appointments")
@@ -63,6 +77,13 @@ export default function CancelledAppointmentsPage() {
       isMounted = false;
     };
   }, []);
+
+  function buildPatientHref(id: string) {
+    if (priorityMode === "medical") {
+      return `/patients/${id}?mode=medical`;
+    }
+    return `/patients/${id}`;
+  }
 
   return (
     <div className="space-y-4">
@@ -120,7 +141,7 @@ export default function CancelledAppointmentsPage() {
                   return (
                     <tr key={row.id} className="hover:bg-slate-50/70">
                       <td className="py-2 pr-3 align-top text-sky-700">
-                        <Link href={`/patients/${row.patient_id}`} className="hover:underline">
+                        <Link href={buildPatientHref(row.patient_id)} className="hover:underline">
                           {name}
                         </Link>
                       </td>

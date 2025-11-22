@@ -7,11 +7,25 @@ import PatientDetailsTabs from "./PatientDetailsTabs";
 import PatientCrmPreferencesCard from "./PatientCrmPreferencesCard";
 import PatientActivityCard from "./PatientActivityCard";
 import CrisalixPlayerModal from "./CrisalixPlayerModal";
+import MedicalConsultationsCard from "./MedicalConsultationsCard";
+import PatientModeInitializer from "./PatientModeInitializer";
+import InvoicePaymentMethodFilter from "./InvoicePaymentMethodFilter";
 
 interface PatientDetailsProps {
   params: Promise<{ id: string }>;
   searchParams?: Promise<{ [key: string]: string | string[] | undefined }>;
 }
+
+type MedicalTab =
+  | "cockpit"
+  | "notes"
+  | "prescription"
+  | "invoice"
+  | "file"
+  | "photo"
+  | "patient_information"
+  | "documents"
+  | "form_photos";
 
 async function getPatientWithDetails(id: string) {
   const { data: patient, error } = await supabaseClient
@@ -35,11 +49,144 @@ async function getPatientWithDetails(id: string) {
   return { patient, insurance: insurance ?? [] } as const;
 }
 
+function extractInvoiceInfoFromContent(content: string | null): {
+  total: number;
+  isComplimentary: boolean;
+} {
+  if (!content) {
+    return { total: 0, isComplimentary: false };
+  }
+
+  const html = content;
+
+  const isComplimentary =
+    html.includes("Extra option:</strong> Complimentary service") ||
+    html.includes("Extra option:</strong> Complimentary Service");
+
+  let total = 0;
+  const match = html.match(
+    /Estimated total:<\/strong>\s*CHF\s*([0-9]+(?:\.[0-9]{1,2})?)/,
+  );
+  if (match) {
+    const parsed = Number.parseFloat(match[1].replace(/[^0-9.]/g, ""));
+    if (Number.isFinite(parsed)) {
+      total = parsed;
+    }
+  }
+
+  return { total, isComplimentary };
+}
+
+async function getInvoiceSummary(
+  patientId: string,
+  paymentMethodFilter: string | null = null,
+): Promise<{
+  totalAmount: number;
+  totalComplimentary: number;
+  totalPaid: number;
+  totalUnpaid: number;
+}> {
+  try {
+    const { data, error } = await supabaseClient
+      .from("consultations")
+      .select(
+        "content, record_type, is_archived, payment_method, invoice_total_amount, invoice_is_complimentary, invoice_is_paid",
+      )
+      .eq("patient_id", patientId)
+      .eq("record_type", "invoice");
+
+    if (error || !data) {
+      return {
+        totalAmount: 0,
+        totalComplimentary: 0,
+        totalPaid: 0,
+        totalUnpaid: 0,
+      };
+    }
+
+    let totalAmountNonComplimentary = 0;
+    let totalComplimentary = 0;
+    let totalPaid = 0;
+    let totalUnpaid = 0;
+
+    for (const row of data as any[]) {
+      if ((row as any).is_archived) continue;
+
+      const paymentMethod = (row as any).payment_method as
+        | string
+        | null
+        | undefined;
+      if (paymentMethodFilter && paymentMethod !== paymentMethodFilter) {
+        continue;
+      }
+
+      const content =
+        ((row as any).content as string | null | undefined) ?? null;
+      const parsed = extractInvoiceInfoFromContent(content);
+
+      const rawAmount = (row as any).invoice_total_amount;
+      let amount = 0;
+      if (rawAmount !== null && rawAmount !== undefined) {
+        const numeric = Number(rawAmount);
+        if (Number.isFinite(numeric) && numeric > 0) {
+          amount = numeric;
+        }
+      } else if (parsed.total > 0) {
+        amount = parsed.total;
+      }
+
+      if (amount <= 0) continue;
+
+      const invoiceIsComplimentaryRaw = (row as any)
+        .invoice_is_complimentary;
+      const isComplimentary =
+        ((typeof invoiceIsComplimentaryRaw === "boolean"
+          ? invoiceIsComplimentaryRaw
+          : false) || parsed.isComplimentary);
+
+      const invoiceIsPaidRaw = (row as any).invoice_is_paid;
+      const isPaid =
+        typeof invoiceIsPaidRaw === "boolean" ? invoiceIsPaidRaw : false;
+
+      if (isComplimentary) {
+        totalComplimentary += amount;
+        continue;
+      }
+
+      totalAmountNonComplimentary += amount;
+
+      if (isPaid) {
+        totalPaid += amount;
+      } else {
+        totalUnpaid += amount;
+      }
+    }
+
+    return {
+      totalAmount:
+        totalAmountNonComplimentary > 0 ? totalAmountNonComplimentary : 0,
+      totalComplimentary:
+        totalComplimentary > 0 ? totalComplimentary : 0,
+      totalPaid: totalPaid > 0 ? totalPaid : 0,
+      totalUnpaid: totalUnpaid > 0 ? totalUnpaid : 0,
+    };
+  } catch {
+    return {
+      totalAmount: 0,
+      totalComplimentary: 0,
+      totalPaid: 0,
+      totalUnpaid: 0,
+    };
+  }
+}
+
 export default async function PatientPage({
   params,
   searchParams,
 }: PatientDetailsProps) {
   const { id } = await params;
+  const resolvedSearchParams = searchParams ? await searchParams : undefined;
+
   const { patient, insurance } = await getPatientWithDetails(id);
 
   if (!patient) {
@@ -65,8 +212,6 @@ export default async function PatientPage({
     }
   }
 
-  const resolvedSearchParams = searchParams ? await searchParams : undefined;
-
   const genderRaw = (patient as any).gender as string | null | undefined;
   const gender = genderRaw ? genderRaw.toLowerCase() : null;
 
@@ -78,6 +223,23 @@ export default async function PatientPage({
   })();
 
   const mode: "crm" | "medical" = rawMode === "medical" ? "medical" : "crm";
+
+  const rawPaymentMethodFilter = (() => {
+    const value = resolvedSearchParams?.payment_method;
+    if (typeof value === "string") return value;
+    if (Array.isArray(value) && value.length > 0) return value[0];
+    return undefined;
+  })();
+
+  const paymentMethodFilter =
+    rawPaymentMethodFilter === "Cash" ||
+    rawPaymentMethodFilter === "Online Payment" ||
+    rawPaymentMethodFilter === "Bank transfer" ||
+    rawPaymentMethodFilter === "Insurance"
+      ? rawPaymentMethodFilter
+      : null;
+
+  const invoiceSummary = await getInvoiceSummary(id, paymentMethodFilter);
 
   const crPlayerIdRaw = (() => {
     const value = resolvedSearchParams?.cr_player_id;
@@ -101,6 +263,38 @@ export default async function PatientPage({
   const show3d =
     resolvedSearchParams?.show3d === "1" && !!crPlayerIdRaw && crType !== null;
 
+  const rawMedicalTab = (() => {
+    const value = resolvedSearchParams?.m_tab;
+    if (typeof value === "string") return value;
+    if (Array.isArray(value) && value.length > 0) return value[0];
+    return undefined;
+  })();
+
+  const medicalTab: MedicalTab =
+    rawMedicalTab === "cockpit" ||
+    rawMedicalTab === "notes" ||
+    rawMedicalTab === "prescription" ||
+    rawMedicalTab === "invoice" ||
+    rawMedicalTab === "file" ||
+    rawMedicalTab === "photo" ||
+    rawMedicalTab === "patient_information" ||
+    rawMedicalTab === "documents" ||
+    rawMedicalTab === "form_photos"
+      ? (rawMedicalTab as MedicalTab)
+      : "cockpit";
+
+  const medicalTabs: { id: MedicalTab; label: string }[] = [
+    { id: "cockpit", label: "Cockpit" },
+    { id: "notes", label: "Notes" },
+    { id: "prescription", label: "Prescription" },
+    { id: "invoice", label: "Invoice" },
+    { id: "file", label: "File" },
+    { id: "photo", label: "Photo" },
+    { id: "patient_information", label: "Patient Information" },
+    { id: "documents", label: "Documents" },
+    { id: "form_photos", label: "Form Photos" },
+  ];
+
   let genderClasses = "bg-slate-50 text-slate-700 border-slate-200";
   if (gender === "male") {
     genderClasses = "bg-sky-50 text-sky-700 border-sky-200";
@@ -111,6 +305,7 @@ export default async function PatientPage({
   return (
     <div className="space-y-6">
       <CollapseSidebarOnMount />
+      <PatientModeInitializer patientId={patient.id} />
       <CrisalixPlayerModal
         patientId={patient.id}
         open={mode === "medical" && show3d}
@@ -146,7 +341,7 @@ export default async function PatientPage({
           </div>
           <div className="flex items-center gap-2">
             <Link
-              href={`/patients/${patient.id}?composeEmail=1`}
+              href={`/patients/${patient.id}?mode=crm&composeEmail=1`}
               className="inline-flex items-center gap-1 rounded-full border border-slate-300/80 bg-gradient-to-b from-slate-50/90 via-slate-100/90 to-slate-200/90 px-3 py-1.5 text-xs font-medium text-slate-800 shadow-[0_4px_12px_rgba(15,23,42,0.18)] backdrop-blur hover:from-slate-100 hover:to-slate-300"
             >
               <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
@@ -208,236 +403,394 @@ export default async function PatientPage({
         </>
       ) : (
         <div className="space-y-6">
-          <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
-            <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-              <div>
-                <p className="text-xs font-medium text-slate-500">
-                  Consultations for:
-                </p>
-                <p className="text-base font-semibold text-slate-900">
-                  {patient.first_name} {patient.last_name}
-                </p>
-              </div>
-              <div className="flex items-center gap-2">
-                <div className="inline-flex items-center rounded-full bg-slate-100 px-0.5 py-0.5 text-[11px] font-semibold text-slate-700">
-                  <span className="rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold text-white">
-                    Financial
-                  </span>
-                  <span className="ml-1 rounded-full bg-sky-500 px-3 py-1 text-[11px] font-semibold text-white">
-                    Medical
-                  </span>
-                </div>
-                <Link
-                  href={`/patients/${patient.id}/3d`}
-                  className="inline-flex items-center gap-1 rounded-full border border-sky-200/80 bg-sky-500 px-3 py-1 text-[11px] font-semibold text-white shadow-[0_6px_16px_rgba(37,99,235,0.35)] hover:bg-sky-600"
-                >
-                  <span>3D</span>
-                  <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
-                    <svg
-                      className="h-3.5 w-3.5"
-                      viewBox="0 0 20 20"
-                      fill="none"
-                      xmlns="http://www.w3.org/2000/svg"
-                    >
-                      <path
-                        d="M4 7.5L10 4.5L16 7.5V12.5L10 15.5L4 12.5V7.5Z"
-                        stroke="currentColor"
-                        strokeWidth="1.4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d="M10 4.5V10.5"
-                        stroke="currentColor"
-                        strokeWidth="1.4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                      <path
-                        d="M4 7.5L10 10.5L16 7.5"
-                        stroke="currentColor"
-                        strokeWidth="1.4"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </span>
-                </Link>
-              </div>
-            </div>
-
-            <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
-              <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
-                <p className="text-[11px] font-medium text-slate-500">
-                  Total Amount
-                </p>
-                <p className="mt-1 text-base font-semibold text-slate-900">
-                  0.00 CHF
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
-                <p className="text-[11px] font-medium text-slate-500">
-                  Total Paid
-                </p>
-                <p className="mt-1 text-base font-semibold text-slate-900">
-                  0.00 CHF
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
-                <p className="text-[11px] font-medium text-slate-500">
-                  Total Unpaid
-                </p>
-                <p className="mt-1 text-base font-semibold text-slate-900">
-                  0.00 CHF
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
-                <p className="text-[11px] font-medium text-slate-500">
-                  Total Discount
-                </p>
-                <p className="mt-1 text-base font-semibold text-slate-900">
-                  0.00 CHF
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
-                <p className="text-[11px] font-medium text-slate-500">
-                  Total Complimentary
-                </p>
-                <p className="mt-1 text-base font-semibold text-slate-900">
-                  0.00 CHF
-                </p>
-              </div>
-              <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
-                <div className="flex items-center justify-between">
-                  <p className="text-[11px] font-medium text-slate-500">
-                    Before and After
-                  </p>
-                  <button
-                    type="button"
-                    className="inline-flex items-center rounded-full border border-sky-200/80 bg-sky-600 px-3 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-sky-700"
+          <div className="border-b border-slate-200">
+            <nav className="-mb-px flex flex-wrap gap-4 text-xs font-medium text-slate-500">
+              {medicalTabs.map((tab) => {
+                const isActive = tab.id === medicalTab;
+                return (
+                  <Link
+                    key={tab.id}
+                    href={`/patients/${patient.id}?mode=medical&m_tab=${tab.id}`}
+                    className={
+                      (isActive
+                        ? "border-sky-500 text-sky-600"
+                        : "border-transparent text-slate-500 hover:border-slate-200 hover:text-slate-700") +
+                      " inline-flex items-center border-b-2 px-1.5 py-1"
+                    }
                   >
-                    View
-                  </button>
+                    {tab.label}
+                  </Link>
+                );
+              })}
+            </nav>
+          </div>
+
+          {medicalTab === "cockpit" ? (
+            <>
+              <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium text-slate-500">
+                      Consultations for:
+                    </p>
+                    <p className="text-base font-semibold text-slate-900">
+                      {patient.first_name} {patient.last_name}
+                    </p>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-3">
+                    <InvoicePaymentMethodFilter
+                      patientId={patient.id}
+                      value={paymentMethodFilter}
+                    />
+                    <div className="flex items-center gap-2">
+                      <div className="inline-flex items-center rounded-full bg-slate-100 px-0.5 py-0.5 text-[11px] font-semibold text-slate-700">
+                        <span className="rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold text-white">
+                          Financial
+                        </span>
+                        <span className="ml-1 rounded-full bg-sky-500 px-3 py-1 text-[11px] font-semibold text-white">
+                          Medical
+                        </span>
+                      </div>
+                      <Link
+                        href={`/patients/${patient.id}/3d`}
+                        className="inline-flex items-center gap-1 rounded-full border border-sky-200/80 bg-sky-500 px-3 py-1 text-[11px] font-semibold text-white shadow-[0_6px_16px_rgba(37,99,235,0.35)] hover:bg-sky-600"
+                      >
+                        <span>3D</span>
+                        <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
+                          <svg
+                            className="h-3.5 w-3.5"
+                            viewBox="0 0 20 20"
+                            fill="none"
+                            xmlns="http://www.w3.org/2000/svg"
+                          >
+                            <path
+                              d="M4 7.5L10 4.5L16 7.5V12.5L10 15.5L4 12.5V7.5Z"
+                              stroke="currentColor"
+                              strokeWidth="1.4"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            <path
+                              d="M10 4.5V10.5"
+                              stroke="currentColor"
+                              strokeWidth="1.4"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                            <path
+                              d="M4 7.5L10 10.5L16 7.5"
+                              stroke="currentColor"
+                              strokeWidth="1.4"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        </span>
+                      </Link>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                    <p className="text-[11px] font-medium text-slate-500">
+                      Total Amount
+                    </p>
+                    <p className="mt-1 text-base font-semibold text-slate-900">
+                      {invoiceSummary.totalAmount.toFixed(2)} CHF
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                    <p className="text-[11px] font-medium text-slate-500">
+                      Total Paid
+                    </p>
+                    <p className="mt-1 text-base font-semibold text-slate-900">
+                      {invoiceSummary.totalPaid.toFixed(2)} CHF
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                    <p className="text-[11px] font-medium text-slate-500">
+                      Total Unpaid
+                    </p>
+                    <p className="mt-1 text-base font-semibold text-slate-900">
+                      {invoiceSummary.totalUnpaid.toFixed(2)} CHF
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                    <p className="text-[11px] font-medium text-slate-500">
+                      Total Complimentary
+                    </p>
+                    <p className="mt-1 text-base font-semibold text-slate-900">
+                      {invoiceSummary.totalComplimentary.toFixed(2)} CHF
+                    </p>
+                  </div>
                 </div>
               </div>
-            </div>
-          </div>
 
-          <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
-            <div className="grid gap-6 md:grid-cols-3">
-              <div className="space-y-1 text-[11px]">
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Patient Details
-                </h3>
-                <p className="text-slate-500">
-                  <span className="font-semibold text-slate-700">Email:</span>{" "}
-                  <span className="text-slate-900">{patient.email ?? "N/A"}</span>
-                </p>
-                <p className="text-slate-500">
-                  <span className="font-semibold text-slate-700">Mobile Number:</span>{" "}
-                  <span className="text-slate-900">{patient.phone ?? "N/A"}</span>
-                </p>
-                <p className="text-slate-500">
-                  <span className="font-semibold text-slate-700">Civil Status:</span>{" "}
-                  <span className="text-slate-900">
-                    {patient.marital_status ?? "N/A"}
-                  </span>
-                </p>
-                <p className="text-slate-500">
-                  <span className="font-semibold text-slate-700">Gender:</span>{" "}
-                  <span className="text-slate-900">{genderRaw ?? "N/A"}</span>
-                </p>
-                <p className="text-slate-500">
-                  <span className="font-semibold text-slate-700">Patient Number:</span>{" "}
-                  <span className="text-slate-900">{patient.id}</span>
-                </p>
+              <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
+                <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+                  <div className="space-y-1 text-[11px]">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Patient Details
+                    </h3>
+                    <p className="text-slate-500">
+                      <span className="font-semibold text-slate-700">Email:</span>{" "}
+                      <span className="text-slate-900">{patient.email ?? "N/A"}</span>
+                    </p>
+                    <p className="text-slate-500">
+                      <span className="font-semibold text-slate-700">Mobile Number:</span>{" "}
+                      <span className="text-slate-900">{patient.phone ?? "N/A"}</span>
+                    </p>
+                    <p className="text-slate-500">
+                      <span className="font-semibold text-slate-700">Civil Status:</span>{" "}
+                      <span className="text-slate-900">
+                        {patient.marital_status ?? "N/A"}
+                      </span>
+                    </p>
+                    <p className="text-slate-500">
+                      <span className="font-semibold text-slate-700">Gender:</span>{" "}
+                      <span className="text-slate-900">{genderRaw ?? "N/A"}</span>
+                    </p>
+                    <p className="text-slate-500">
+                      <span className="font-semibold text-slate-700">Patient Number:</span>{" "}
+                      <span className="text-slate-900">{patient.id}</span>
+                    </p>
+                  </div>
+
+                  <div className="space-y-1 text-[11px]">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Patient Address
+                    </h3>
+                    <p className="text-slate-500">
+                      <span className="font-semibold text-slate-700">Street Number:</span>{" "}
+                      <span className="text-slate-900">N/A</span>
+                    </p>
+                    <p className="text-slate-500">
+                      <span className="font-semibold text-slate-700">Street:</span>{" "}
+                      <span className="text-slate-900">
+                        {patient.street_address ?? "N/A"}
+                      </span>
+                    </p>
+                    <p className="text-slate-500">
+                      <span className="font-semibold text-slate-700">Zip Code:</span>{" "}
+                      <span className="text-slate-900">
+                        {patient.postal_code ?? "N/A"}
+                      </span>
+                    </p>
+                    <p className="text-slate-500">
+                      <span className="font-semibold text-slate-700">Country:</span>{" "}
+                      <span className="text-slate-900">N/A</span>
+                    </p>
+                  </div>
+
+                  <div className="space-y-1 text-[11px]">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Patient Emergency Contact
+                    </h3>
+                    <p className="text-slate-500">
+                      <span className="font-semibold text-slate-700">Name:</span>{" "}
+                      <span className="text-slate-900">N/A</span>
+                    </p>
+                    <p className="text-slate-500">
+                      <span className="font-semibold text-slate-700">Mobile Number:</span>{" "}
+                      <span className="text-slate-900">N/A</span>
+                    </p>
+                    <p className="text-slate-500">
+                      <span className="font-semibold text-slate-700">Relation to Patient:</span>{" "}
+                      <span className="text-slate-900">N/A</span>
+                    </p>
+                  </div>
+
+                  <div className="space-y-2 text-[11px]">
+                    <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Before and After
+                    </h3>
+                    <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                      <div className="flex items-center justify-between">
+                        <p className="text-[11px] font-medium text-slate-500">
+                          View reconstruction
+                        </p>
+                        <button
+                          type="button"
+                          className="inline-flex items-center rounded-full border border-sky-200/80 bg-sky-600 px-3 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-sky-700"
+                        >
+                          View
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
 
-              <div className="space-y-1 text-[11px]">
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Patient Address
-                </h3>
-                <p className="text-slate-500">
-                  <span className="font-semibold text-slate-700">Street Number:</span>{" "}
-                  <span className="text-slate-900">N/A</span>
-                </p>
-                <p className="text-slate-500">
-                  <span className="font-semibold text-slate-700">Street:</span>{" "}
-                  <span className="text-slate-900">
-                    {patient.street_address ?? "N/A"}
-                  </span>
-                </p>
-                <p className="text-slate-500">
-                  <span className="font-semibold text-slate-700">Zip Code:</span>{" "}
-                  <span className="text-slate-900">
-                    {patient.postal_code ?? "N/A"}
-                  </span>
-                </p>
-                <p className="text-slate-500">
-                  <span className="font-semibold text-slate-700">Country:</span>{" "}
-                  <span className="text-slate-900">N/A</span>
-                </p>
-              </div>
+              <MedicalConsultationsCard patientId={patient.id} />
+            </>
+          ) : null}
 
-              <div className="space-y-1 text-[11px]">
-                <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Patient Emergency Contact
-                </h3>
-                <p className="text-slate-500">
-                  <span className="font-semibold text-slate-700">Name:</span>{" "}
-                  <span className="text-slate-900">N/A</span>
-                </p>
-                <p className="text-slate-500">
-                  <span className="font-semibold text-slate-700">Mobile Number:</span>{" "}
-                  <span className="text-slate-900">N/A</span>
-                </p>
-                <p className="text-slate-500">
-                  <span className="font-semibold text-slate-700">Relation to Patient:</span>{" "}
-                  <span className="text-slate-900">N/A</span>
-                </p>
-              </div>
-            </div>
-          </div>
+          {medicalTab === "notes" ? (
+            <MedicalConsultationsCard patientId={patient.id} recordTypeFilter="notes" />
+          ) : null}
 
-          <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
-            <div className="mb-3 flex items-center justify-between">
-              <h3 className="text-sm font-semibold text-slate-900">
-                Consultations
-              </h3>
-            </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full border-separate border-spacing-0 text-left text-xs">
-                <thead className="bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                  <tr>
-                    <th className="border-b border-slate-100 px-3 py-2">Type</th>
-                    <th className="border-b border-slate-100 px-3 py-2">
-                      Medical Expert
-                    </th>
-                    <th className="border-b border-slate-100 px-3 py-2">
-                      Consultation Details
-                    </th>
-                    <th className="border-b border-slate-100 px-3 py-2">
-                      Payment Method
-                    </th>
-                    <th className="border-b border-slate-100 px-3 py-2">
-                      Total Amount
-                    </th>
-                    <th className="border-b border-slate-100 px-3 py-2">Actions</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td
-                      className="px-3 py-4 text-center text-xs text-slate-500"
-                      colSpan={6}
+          {medicalTab === "prescription" ? (
+            <MedicalConsultationsCard patientId={patient.id} recordTypeFilter="prescription" />
+          ) : null}
+
+          {medicalTab === "invoice" ? (
+            <>
+              <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <p className="text-xs font-medium text-slate-500">
+                      Consultations for:
+                    </p>
+                    <p className="text-base font-semibold text-slate-900">
+                      {patient.first_name} {patient.last_name}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <div className="inline-flex items-center rounded-full bg-slate-100 px-0.5 py-0.5 text-[11px] font-semibold text-slate-700">
+                      <span className="rounded-full bg-slate-800 px-3 py-1 text-[11px] font-semibold text-white">
+                        Financial
+                      </span>
+                      <span className="ml-1 rounded-full bg-sky-500 px-3 py-1 text-[11px] font-semibold text-white">
+                        Medical
+                      </span>
+                    </div>
+                    <Link
+                      href={`/patients/${patient.id}/3d`}
+                      className="inline-flex items-center gap-1 rounded-full border border-sky-200/80 bg-sky-500 px-3 py-1 text-[11px] font-semibold text-white shadow-[0_6px_16px_rgba(37,99,235,0.35)] hover:bg-sky-600"
                     >
-                      No consultations found.
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+                      <span>3D</span>
+                      <span className="inline-flex h-3.5 w-3.5 items-center justify-center">
+                        <svg
+                          className="h-3.5 w-3.5"
+                          viewBox="0 0 20 20"
+                          fill="none"
+                          xmlns="http://www.w3.org/2000/svg"
+                        >
+                          <path
+                            d="M4 7.5L10 4.5L16 7.5V12.5L10 15.5L4 12.5V7.5Z"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M10 4.5V10.5"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                          <path
+                            d="M4 7.5L10 10.5L16 7.5"
+                            stroke="currentColor"
+                            strokeWidth="1.4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          />
+                        </svg>
+                      </span>
+                    </Link>
+                  </div>
+                </div>
+
+                <div className="grid gap-3 md:grid-cols-3 lg:grid-cols-6">
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                    <p className="text-[11px] font-medium text-slate-500">
+                      Total Amount
+                    </p>
+                    <p className="mt-1 text-base font-semibold text-slate-900">
+                      {invoiceSummary.totalAmount.toFixed(2)} CHF
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                    <p className="text-[11px] font-medium text-slate-500">
+                      Total Paid
+                    </p>
+                    <p className="mt-1 text-base font-semibold text-slate-900">
+                      {invoiceSummary.totalPaid.toFixed(2)} CHF
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                    <p className="text-[11px] font-medium text-slate-500">
+                      Total Unpaid
+                    </p>
+                    <p className="mt-1 text-base font-semibold text-slate-900">
+                      {invoiceSummary.totalUnpaid.toFixed(2)} CHF
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                    <p className="text-[11px] font-medium text-slate-500">
+                      Total Complimentary
+                    </p>
+                    <p className="mt-1 text-base font-semibold text-slate-900">
+                      {invoiceSummary.totalComplimentary.toFixed(2)} CHF
+                    </p>
+                  </div>
+                  <div className="rounded-lg border border-slate-100 bg-slate-50/80 p-3">
+                    <div className="flex items-center justify-between">
+                      <p className="text-[11px] font-medium text-slate-500">
+                        Before and After
+                      </p>
+                      <button
+                        type="button"
+                        className="inline-flex items-center rounded-full border border-sky-200/80 bg-sky-600 px-3 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-sky-700"
+                      >
+                        View
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <MedicalConsultationsCard patientId={patient.id} recordTypeFilter="invoice" />
+            </>
+          ) : null}
+
+          {medicalTab === "file" ? (
+            <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
+              <h3 className="text-sm font-semibold text-slate-900">File</h3>
+              <p className="mt-2 text-xs text-slate-500">
+                The patient file and related clinical information will appear here.
+              </p>
             </div>
-          </div>
+          ) : null}
+
+          {medicalTab === "photo" ? (
+            <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
+              <h3 className="text-sm font-semibold text-slate-900">Photo</h3>
+              <p className="mt-2 text-xs text-slate-500">
+                Clinical photos for this patient will appear here.
+              </p>
+            </div>
+          ) : null}
+
+          {medicalTab === "patient_information" ? (
+            <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
+              <h3 className="text-sm font-semibold text-slate-900">Patient Information</h3>
+              <p className="mt-2 text-xs text-slate-500">
+                Detailed patient information will appear here.
+              </p>
+            </div>
+          ) : null}
+
+          {medicalTab === "documents" ? (
+            <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
+              <h3 className="text-sm font-semibold text-slate-900">Documents</h3>
+              <p className="mt-2 text-xs text-slate-500">
+                Medical documents and reports for this patient will appear here.
+              </p>
+            </div>
+          ) : null}
+
+          {medicalTab === "form_photos" ? (
+            <div className="rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)]">
+              <h3 className="text-sm font-semibold text-slate-900">Form Photos</h3>
+              <p className="mt-2 text-xs text-slate-500">
+                Photos submitted from patient forms will appear here.
+              </p>
+            </div>
+          ) : null}
         </div>
       )}
     </div>

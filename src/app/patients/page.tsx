@@ -36,6 +36,8 @@ export default function PatientsPage() {
 
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
 
+  const [priorityMode, setPriorityMode] = useState<"crm" | "medical">("crm");
+
   useEffect(() => {
     let isMounted = true;
 
@@ -97,6 +99,32 @@ export default function PatientsPage() {
     }
 
     void load();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let isMounted = true;
+
+    async function loadPriority() {
+      try {
+        const { data } = await supabaseClient.auth.getUser();
+        if (!isMounted) return;
+        const user = data.user;
+        if (!user) return;
+
+        const meta = (user.user_metadata || {}) as Record<string, unknown>;
+        const rawPriority = (meta["priority_mode"] as string) || "";
+        const next: "crm" | "medical" =
+          rawPriority === "medical" ? "medical" : "crm";
+        setPriorityMode(next);
+      } catch {
+      }
+    }
+
+    void loadPriority();
 
     return () => {
       isMounted = false;
@@ -189,6 +217,13 @@ export default function PatientsPage() {
   const pageStart = (currentPage - 1) * pageSize;
   const pageEnd = pageStart + pageSize;
   const paginatedPatients = filteredPatients.slice(pageStart, pageEnd);
+
+  function buildPatientHref(id: string) {
+    if (priorityMode === "medical") {
+      return `/patients/${id}?mode=medical`;
+    }
+    return `/patients/${id}`;
+  }
 
   function handleToggleAll(checked: boolean) {
     if (checked) {
@@ -358,7 +393,7 @@ export default function PatientsPage() {
                       </td>
                       <td className="py-2 pr-3 align-top text-sky-700">
                         <Link
-                          href={`/patients/${patient.id}`}
+                          href={buildPatientHref(patient.id)}
                           className="hover:underline"
                         >
                           {fullName || "Unnamed patient"}
@@ -379,13 +414,13 @@ export default function PatientsPage() {
                       <td className="py-2 pr-3 align-top text-slate-700">
                         <div className="flex flex-wrap items-center gap-1">
                           <Link
-                            href={`/patients/${patient.id}`}
+                            href={buildPatientHref(patient.id)}
                             className="inline-flex items-center rounded-full border border-emerald-200/80 bg-emerald-500 px-2 py-0.5 text-[10px] font-medium text-white shadow-sm hover:bg-emerald-600"
                           >
                             Edit
                           </Link>
                           <Link
-                            href={`/patients/${patient.id}`}
+                            href={buildPatientHref(patient.id)}
                             className="inline-flex items-center rounded-full border border-slate-200/80 bg-white px-2 py-0.5 text-[10px] font-medium text-slate-700 shadow-sm hover:bg-slate-50"
                           >
                             View
