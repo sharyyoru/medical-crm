@@ -47,7 +47,7 @@ export default function RootLayout({
               className="peer sr-only"
             />
             <ShellSidebar>
-              <aside className="hidden w-60 border-r border-slate-100/80 bg-gradient-to-b from-slate-50/90 to-slate-50/40 px-4 py-5 transition-all duration-200 ease-out sm:flex sm:flex-col peer-checked:sm:w-0 peer-checked:sm:border-r-0 peer-checked:sm:px-0 peer-checked:sm:opacity-0 peer-checked:sm:pointer-events-none">
+              <aside className="hidden w-60 border-r border-slate-100/80 bg-gradient-to-b from-slate-50/90 to-slate-50/40 px-4 py-5 transition-all duration-200 ease-out sm:flex sm:flex-col peer-checked:sm:w-0 peer-checked:sm:border-r-0 peer-checked:sm:px-0 peer-checked:sm:opacity-0 peer-checked:sm:pointer-events-none app-shell-sidebar">
               <div className="mb-6 flex justify-center px-2">
                 <Image
                   src="/logos/aliice-logo.png"
@@ -297,7 +297,7 @@ export default function RootLayout({
               <RequireAuth>
                 <div className="flex h-full flex-col">
                 <ShellHeader>
-                  <header className="flex items-center justify-between border-b border-slate-100/80 bg-white/70 px-4 py-3 sm:px-6 lg:px-8">
+                  <header className="flex items-center justify-between border-b border-slate-100/80 bg-white/70 px-4 py-3 sm:px-6 lg:px-8 app-shell-header">
                     <div className="flex items-center gap-4">
                       <label
                         htmlFor="sidebar-toggle"
