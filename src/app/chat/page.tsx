@@ -873,9 +873,9 @@ export default function ChatWithAliicePage() {
                         key={patient.id}
                         type="button"
                         onClick={() => handleSelectPatient(patient)}
-                        className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-sky-50"
+                        className="flex w-full flex-col items-start px-3 py-1.5 text-left text-slate-900 hover:bg-sky-50"
                       >
-                        <span className="font-medium">
+                        <span className="font-medium text-slate-900">
                           {formatPatientForDisplay(patient)}
                         </span>
                       </button>

@@ -31,6 +31,7 @@ type ServiceGroupService = {
   group_id: string;
   service_id: string;
   discount_percent: number | null;
+  quantity: number | null;
 };
 
 export default function ServicesPage() {
@@ -63,6 +64,8 @@ export default function ServicesPage() {
   const [groupServiceDiscountInputs, setGroupServiceDiscountInputs] = useState<
     Record<string, string>
   >({});
+  const [groupServiceQuantityInputs, setGroupServiceQuantityInputs] =
+    useState<Record<string, string>>({});
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [groupMessage, setGroupMessage] = useState<string | null>(null);
 
@@ -176,7 +179,7 @@ export default function ServicesPage() {
         const { data: groupServiceData, error: groupServiceError } =
           await supabaseClient
             .from("service_group_services")
-            .select("id, group_id, service_id, discount_percent");
+            .select("id, group_id, service_id, discount_percent, quantity");
 
         if (!isMounted) return;
 
@@ -371,6 +374,7 @@ export default function ServicesPage() {
           group_id: string;
           service_id: string;
           discount_percent: number | null;
+          quantity: number;
         }[] = [];
 
         for (const serviceId of selectedGroupServiceIds) {
@@ -389,17 +393,37 @@ export default function ServicesPage() {
             discount = parsed;
           }
 
+          let quantity = 1;
+          const rawQuantity =
+            (groupServiceQuantityInputs[serviceId] ?? "").trim();
+          if (rawQuantity) {
+            const parsedQuantity = Number(rawQuantity.replace(",", "."));
+            if (
+              !Number.isFinite(parsedQuantity) ||
+              parsedQuantity <= 0 ||
+              !Number.isInteger(parsedQuantity)
+            ) {
+              setGroupMessage(
+                "Please enter valid quantities as whole numbers of 1 or greater.",
+              );
+              setCreatingGroup(false);
+              return;
+            }
+            quantity = parsedQuantity;
+          }
+
           rows.push({
             group_id: createdGroup.id,
             service_id: serviceId,
             discount_percent: discount,
+            quantity,
           });
         }
 
         const { data: linkData, error: linkError } = await supabaseClient
           .from("service_group_services")
           .insert(rows)
-          .select("id, group_id, service_id, discount_percent");
+          .select("id, group_id, service_id, discount_percent, quantity");
 
         if (linkError || !linkData) {
           setGroupMessage(linkError?.message ?? "Group created, but linking services failed.");
@@ -422,6 +446,7 @@ export default function ServicesPage() {
       setSelectedGroupServiceIds([]);
       setNewGroupDiscountPercent("");
       setGroupServiceDiscountInputs({});
+      setGroupServiceQuantityInputs({});
       setGroupMessage("Group created.");
     } catch {
       setGroupMessage("Failed to create group.");
@@ -1289,6 +1314,8 @@ export default function ServicesPage() {
                         const checked = selectedGroupServiceIds.includes(service.id);
                         const discountInput =
                           groupServiceDiscountInputs[service.id] ?? "";
+                        const quantityInput =
+                          groupServiceQuantityInputs[service.id] ?? "";
                         return (
                           <label
                             key={service.id}
@@ -1305,6 +1332,18 @@ export default function ServicesPage() {
                                       ? [...prev, service.id]
                                       : prev.filter((id) => id !== service.id),
                                   );
+                                  setGroupServiceQuantityInputs((prev) => {
+                                    if (isChecked) {
+                                      const existing =
+                                        (prev[service.id] ?? "").trim();
+                                      return {
+                                        ...prev,
+                                        [service.id]: existing || "1",
+                                      };
+                                    }
+                                    const { [service.id]: _removed, ...rest } = prev;
+                                    return rest;
+                                  });
                                 }}
                                 className="h-3 w-3 rounded border-slate-300 text-emerald-500 focus:ring-emerald-400"
                               />
@@ -1323,6 +1362,21 @@ export default function ServicesPage() {
                                   ? `CHF ${service.base_price.toFixed(2)}`
                                   : "CHF —"}
                               </span>
+                              <input
+                                type="number"
+                                min="1"
+                                step="1"
+                                value={quantityInput}
+                                onChange={(event) => {
+                                  const value = event.target.value;
+                                  setGroupServiceQuantityInputs((prev) => ({
+                                    ...prev,
+                                    [service.id]: value,
+                                  }));
+                                }}
+                                className="w-12 rounded border border-slate-200 bg-white px-1 py-0.5 text-right text-[10px] text-slate-900 shadow-sm focus:border-emerald-400 focus:outline-none focus:ring-1 focus:ring-emerald-400"
+                                placeholder="Qty"
+                              />
                               <input
                                 type="number"
                                 min="0"
@@ -1405,14 +1459,40 @@ export default function ServicesPage() {
                     );
                     const groupDiscountPercent = group.discount_percent ?? 0;
 
+                    const totalQuantity = links.reduce((sum, link) => {
+                      const rawQuantity = link.quantity;
+                      const quantity =
+                        typeof rawQuantity === "number" &&
+                        Number.isFinite(rawQuantity) &&
+                        rawQuantity > 0
+                          ? rawQuantity
+                          : 1;
+                      return sum + quantity;
+                    }, 0);
+
                     const originalTotal = linkedServices.reduce((sum, service) => {
                       const price = service.base_price ?? 0;
-                      return sum + price;
+                      const link = linkByServiceId.get(service.id);
+                      const rawQuantity = link?.quantity;
+                      const quantity =
+                        typeof rawQuantity === "number" &&
+                        Number.isFinite(rawQuantity) &&
+                        rawQuantity > 0
+                          ? rawQuantity
+                          : 1;
+                      return sum + price * quantity;
                     }, 0);
 
                     const groupTotal = linkedServices.reduce((sum, service) => {
                       const price = service.base_price ?? 0;
                       const link = linkByServiceId.get(service.id);
+                      const rawQuantity = link?.quantity;
+                      const quantity =
+                        typeof rawQuantity === "number" &&
+                        Number.isFinite(rawQuantity) &&
+                        rawQuantity > 0
+                          ? rawQuantity
+                          : 1;
                       let discountPercent =
                         link && link.discount_percent !== null
                           ? link.discount_percent
@@ -1421,9 +1501,9 @@ export default function ServicesPage() {
                         discountPercent = 0;
                       }
                       if (discountPercent > 100) discountPercent = 100;
-                      const discountedPrice =
+                      const discountedUnitPrice =
                         price * (1 - (discountPercent as number) / 100);
-                      return sum + discountedPrice;
+                      return sum + discountedUnitPrice * quantity;
                     }, 0);
 
                     const hasDiscount =
@@ -1445,8 +1525,8 @@ export default function ServicesPage() {
                               </div>
                             ) : null}
                             <div className="mt-1 text-[11px] text-slate-500">
-                              {linkedServices.length} service
-                              {linkedServices.length === 1 ? "" : "s"}
+                              {totalQuantity} service
+                              {totalQuantity === 1 ? "" : "s"}
                               {originalTotal > 0 ? (
                                 hasDiscount ? (
                                   <span className="ml-1 text-slate-400">
@@ -1475,10 +1555,26 @@ export default function ServicesPage() {
                               const category = categoriesById.get(
                                 service.category_id,
                               );
+                              const link = linkByServiceId.get(service.id);
+                              const rawQuantity = link?.quantity;
+                              const quantity =
+                                typeof rawQuantity === "number" &&
+                                Number.isFinite(rawQuantity) &&
+                                rawQuantity > 0
+                                  ? rawQuantity
+                                  : 1;
+                              const unitPrice = service.base_price ?? 0;
+                              const lineTotal =
+                                service.base_price !== null ? unitPrice * quantity : null;
                               return (
                                 <li key={service.id} className="flex justify-between">
                                   <span>
                                     {service.name}
+                                    {quantity > 1 ? (
+                                      <span className="ml-1 text-[10px] text-slate-400">
+                                        ×{quantity}
+                                      </span>
+                                    ) : null}
                                     {category ? (
                                       <span className="ml-1 text-[10px] text-slate-400">
                                         ({category.name})
@@ -1486,8 +1582,8 @@ export default function ServicesPage() {
                                     ) : null}
                                   </span>
                                   <span className="text-[10px] text-slate-500">
-                                    {service.base_price !== null
-                                      ? `CHF ${service.base_price.toFixed(2)}`
+                                    {lineTotal !== null
+                                      ? `CHF ${lineTotal.toFixed(2)}`
                                       : "CHF —"}
                                   </span>
                                 </li>

@@ -498,6 +498,13 @@ create table if not exists service_group_services (
 create unique index if not exists service_group_services_group_service_key
   on service_group_services(group_id, service_id);
 
+alter table if exists service_groups
+  add column if not exists discount_percent numeric(5, 2);
+
+alter table if exists service_group_services
+  add column if not exists discount_percent numeric(5, 2),
+  add column if not exists quantity integer not null default 1;
+
 -- Seed initial Services data: Aesthetics category and core services
 insert into service_categories (id, name, description, sort_order)
 values (
