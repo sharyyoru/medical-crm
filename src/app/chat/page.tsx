@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useEffect, useState } from "react";
+import { FormEvent, useEffect, useMemo, useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
 import CollapseSidebarOnMount from "@/components/CollapseSidebarOnMount";
 
@@ -15,9 +15,35 @@ type ChatConversation = {
   title: string | null;
   created_at: string;
   updated_at: string;
+  patient_id?: string | null;
   is_archived?: boolean;
   archived_at?: string | null;
 };
+
+type ChatPatientSuggestion = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  email: string | null;
+  phone: string | null;
+};
+
+function formatPatientForDisplay(
+  patient: ChatPatientSuggestion | null | undefined,
+): string {
+  if (!patient) return "";
+  const name = `${patient.first_name ?? ""} ${patient.last_name ?? ""}`.trim();
+  const email = (patient.email ?? "").trim();
+  const phone = (patient.phone ?? "").trim();
+
+  if (name && (email || phone)) {
+    return `${name} (${email || phone})`;
+  }
+  if (name) return name;
+  if (email) return email;
+  if (phone) return phone;
+  return "Unnamed patient";
+}
 
 function generateConversationTitleFromContent(source: string): string {
   const normalized = source.trim().replace(/\s+/g, " ");
@@ -60,6 +86,38 @@ export default function ChatWithAliicePage() {
   const [initialMessagesLoading, setInitialMessagesLoading] = useState(false);
   const [editingTitle, setEditingTitle] = useState("");
 
+  const [patientOptions, setPatientOptions] = useState<ChatPatientSuggestion[]>([]);
+  const [patientOptionsLoading, setPatientOptionsLoading] = useState(false);
+  const [patientOptionsError, setPatientOptionsError] = useState<string | null>(
+    null,
+  );
+  const [patientSearch, setPatientSearch] = useState("");
+  const [selectedPatientId, setSelectedPatientId] = useState<string | null>(null);
+
+  const selectedPatient =
+    selectedPatientId && patientOptions.length > 0
+      ? patientOptions.find((patient) => patient.id === selectedPatientId) ?? null
+      : null;
+
+  const filteredPatientOptions = useMemo(() => {
+    const term = patientSearch.trim().toLowerCase();
+    if (!term) return patientOptions;
+
+    return patientOptions.filter((patient) => {
+      const name = `${patient.first_name ?? ""} ${patient.last_name ?? ""}`
+        .trim()
+        .toLowerCase();
+      const email = (patient.email ?? "").toLowerCase();
+      const phone = (patient.phone ?? "").toLowerCase();
+
+      if (name.includes(term)) return true;
+      if (email.includes(term)) return true;
+      if (phone.includes(term)) return true;
+
+      return false;
+    });
+  }, [patientSearch, patientOptions]);
+
   useEffect(() => {
     let isMounted = true;
 
@@ -84,7 +142,9 @@ export default function ChatWithAliicePage() {
 
         const { data: rows, error } = await supabaseClient
           .from("chat_conversations")
-          .select("id, title, created_at, updated_at, is_archived, archived_at")
+          .select(
+            "id, title, created_at, updated_at, is_archived, archived_at, patient_id",
+          )
           .eq("user_id", authUser.id)
           .eq("is_archived", false)
           .order("updated_at", { ascending: false });
@@ -102,6 +162,7 @@ export default function ChatWithAliicePage() {
             updated_at: row.updated_at as string,
             is_archived: (row.is_archived as boolean | null) ?? false,
             archived_at: (row.archived_at as string | null) ?? null,
+            patient_id: (row.patient_id as string | null) ?? null,
           }));
           setConversations(items);
           if (items.length > 0) {
@@ -126,6 +187,45 @@ export default function ChatWithAliicePage() {
   }, []);
 
   useEffect(() => {
+    let isMounted = true;
+
+    async function loadPatients() {
+      try {
+        setPatientOptionsLoading(true);
+        setPatientOptionsError(null);
+
+        const { data, error } = await supabaseClient
+          .from("patients")
+          .select("id, first_name, last_name, email, phone")
+          .order("created_at", { ascending: false })
+          .limit(500);
+
+        if (!isMounted) return;
+
+        if (error || !data) {
+          setPatientOptions([]);
+          setPatientOptionsError(error?.message ?? "Failed to load patients.");
+        } else {
+          setPatientOptions(data as ChatPatientSuggestion[]);
+        }
+
+        setPatientOptionsLoading(false);
+      } catch {
+        if (!isMounted) return;
+        setPatientOptions([]);
+        setPatientOptionsError("Failed to load patients.");
+        setPatientOptionsLoading(false);
+      }
+    }
+
+    void loadPatients();
+
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  useEffect(() => {
     if (!activeConversationId) {
       setEditingTitle("");
       return;
@@ -141,6 +241,19 @@ export default function ChatWithAliicePage() {
     }
 
     setEditingTitle(current.title ?? "");
+  }, [activeConversationId, conversations]);
+
+  useEffect(() => {
+    if (!activeConversationId) {
+      setSelectedPatientId(null);
+      return;
+    }
+
+    const current = conversations.find(
+      (conversation) => conversation.id === activeConversationId,
+    );
+
+    setSelectedPatientId((current?.patient_id as string | null) ?? null);
   }, [activeConversationId, conversations]);
 
   useEffect(() => {
@@ -215,7 +328,9 @@ export default function ChatWithAliicePage() {
         user_id: currentUserId,
         title,
       })
-      .select("id, title, created_at, updated_at, is_archived, archived_at")
+      .select(
+        "id, title, created_at, updated_at, is_archived, archived_at, patient_id",
+      )
       .single();
 
     if (error || !data) {
@@ -233,6 +348,7 @@ export default function ChatWithAliicePage() {
       updated_at: row.updated_at as string,
       is_archived: (row.is_archived as boolean | null) ?? false,
       archived_at: (row.archived_at as string | null) ?? null,
+      patient_id: (row.patient_id as string | null) ?? null,
     };
 
     setConversations((prev) => [conversation, ...prev]);
@@ -249,14 +365,15 @@ export default function ChatWithAliicePage() {
     try {
       setLoading(true);
       setError(null);
-
       const { data, error } = await supabaseClient
         .from("chat_conversations")
         .insert({
           user_id: currentUserId,
           title: "New chat",
         })
-        .select("id, title, created_at, updated_at, is_archived, archived_at")
+        .select(
+          "id, title, created_at, updated_at, is_archived, archived_at, patient_id",
+        )
         .single();
 
       if (error || !data) {
@@ -274,6 +391,7 @@ export default function ChatWithAliicePage() {
         updated_at: row.updated_at as string,
         is_archived: (row.is_archived as boolean | null) ?? false,
         archived_at: (row.archived_at as string | null) ?? null,
+        patient_id: (row.patient_id as string | null) ?? null,
       };
 
       setConversations((prev) => [conversation, ...prev]);
@@ -343,6 +461,7 @@ export default function ChatWithAliicePage() {
             role: message.role,
             content: message.content,
           })),
+          patientId: selectedPatientId,
         }),
       });
 
@@ -557,6 +676,80 @@ export default function ChatWithAliicePage() {
     }
   }
 
+  async function handleSelectPatient(patient: ChatPatientSuggestion) {
+    if (!activeConversationId || !currentUserId) {
+      return;
+    }
+
+    const newPatientId = patient.id as string;
+
+    setSelectedPatientId(newPatientId);
+    setPatientSearch("");
+
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.id === activeConversationId
+          ? {
+              ...conversation,
+              patient_id: newPatientId,
+            }
+          : conversation,
+      ),
+    );
+
+    try {
+      const { error: updateError } = await supabaseClient
+        .from("chat_conversations")
+        .update({
+          patient_id: newPatientId,
+        })
+        .eq("id", activeConversationId)
+        .eq("user_id", currentUserId);
+
+      if (updateError) {
+        setError(updateError.message ?? "Failed to update patient for conversation.");
+      }
+    } catch {
+      setError("Failed to update patient for conversation.");
+    }
+  }
+
+  async function handleClearPatient() {
+    if (!activeConversationId || !currentUserId) {
+      return;
+    }
+
+    setSelectedPatientId(null);
+    setPatientSearch("");
+
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.id === activeConversationId
+          ? {
+              ...conversation,
+              patient_id: null,
+            }
+          : conversation,
+      ),
+    );
+
+    try {
+      const { error: updateError } = await supabaseClient
+        .from("chat_conversations")
+        .update({
+          patient_id: null,
+        })
+        .eq("id", activeConversationId)
+        .eq("user_id", currentUserId);
+
+      if (updateError) {
+        setError(updateError.message ?? "Failed to clear patient for conversation.");
+      }
+    } catch {
+      setError("Failed to clear patient for conversation.");
+    }
+  }
+
   return (
     <div className="h-full space-y-4">
       <CollapseSidebarOnMount />
@@ -650,7 +843,67 @@ export default function ChatWithAliicePage() {
               </button>
             </div>
           </div>
-          
+          <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="relative flex-1 max-w-md text-[11px]">
+              <input
+                type="text"
+                value={patientSearch}
+                onChange={(event) => setPatientSearch(event.target.value)}
+                disabled={!activeConversationId || !currentUserId}
+                placeholder="Search patient by name, email, or phone..."
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[11px] text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 disabled:cursor-not-allowed disabled:opacity-60"
+              />
+              {patientOptionsError ? (
+                <p className="mt-1 text-[10px] text-red-600">{patientOptionsError}</p>
+              ) : null}
+              {patientOptionsLoading ? (
+                <div className="absolute z-10 mt-1 w-full rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-[11px] text-slate-500 shadow-lg">
+                  Loading patients...
+                </div>
+              ) : null}
+              {!patientOptionsLoading && patientSearch.trim().length > 0 ? (
+                <div className="absolute z-10 mt-1 max-h-56 w-full overflow-y-auto rounded-lg border border-slate-200 bg-white py-1 text-[11px] shadow-lg">
+                  {filteredPatientOptions.length === 0 ? (
+                    <div className="px-3 py-1.5 text-slate-500">
+                      No matching patients.
+                    </div>
+                  ) : (
+                    filteredPatientOptions.map((patient) => (
+                      <button
+                        key={patient.id}
+                        type="button"
+                        onClick={() => handleSelectPatient(patient)}
+                        className="flex w-full flex-col items-start px-3 py-1.5 text-left hover:bg-sky-50"
+                      >
+                        <span className="font-medium">
+                          {formatPatientForDisplay(patient)}
+                        </span>
+                      </button>
+                    ))
+                  )}
+                </div>
+              ) : null}
+            </div>
+            <div className="flex items-center gap-2 text-[11px]">
+              <span className="text-slate-500">
+                {!activeConversationId || !currentUserId
+                  ? "Start a conversation to link it to a patient."
+                  : selectedPatient
+                  ? `Linked patient: ${formatPatientForDisplay(selectedPatient)}`
+                  : "No patient selected."}
+              </span>
+              {selectedPatient ? (
+                <button
+                  type="button"
+                  onClick={handleClearPatient}
+                  className="rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-600 hover:bg-slate-100"
+                >
+                  Clear
+                </button>
+              ) : null}
+            </div>
+          </div>
+
           <div className="flex-1 min-h-[220px] max-h-[440px] space-y-2 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/60 p-3 text-[13px]">
             {initialMessagesLoading ? (
               <p className="text-[12px] text-slate-500">Loading conversation...</p>
