@@ -230,6 +230,23 @@ export default function DealsPage() {
               : deal,
           ),
         );
+      } else {
+        try {
+          void fetch("/api/workflows/deal-stage-changed", {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              dealId: dragDealId,
+              patientId: current.patient_id,
+              fromStageId: previousStageId,
+              toStageId: stageId,
+              pipeline: current.pipeline,
+            }),
+          });
+        } catch {
+        }
       }
     } catch {
       setDeals((prev) =>

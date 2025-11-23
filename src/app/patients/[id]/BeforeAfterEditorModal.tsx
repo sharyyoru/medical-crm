@@ -345,7 +345,7 @@ export default function BeforeAfterEditorModal({
                     <span>Before</span>
                     <span className="text-slate-500">Zoom: {beforeZoom.toFixed(2)}x</span>
                   </div>
-                  <div className="flex-1 overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+                  <div className="relative h-[340px] w-full overflow-hidden rounded-md border border-slate-800 bg-slate-950 md:h-[380px] lg:h-[420px]">
                     {beforeImage ? (
                       <div className="flex h-full w-full items-center justify-center overflow-hidden">
                         {/* eslint-disable-next-line @next/next/no-img-element */}
@@ -382,7 +382,7 @@ export default function BeforeAfterEditorModal({
                     <span>After</span>
                     <span className="text-slate-500">Zoom: {afterZoom.toFixed(2)}x</span>
                   </div>
-                  <div className="flex-1 overflow-hidden rounded-md border border-slate-800 bg-slate-950">
+                  <div className="relative h-[340px] w-full overflow-hidden rounded-md border border-slate-800 bg-slate-950 md:h-[380px] lg:h-[420px]">
                     {afterImage ? (
                       <div className="flex h-full w-full items-center justify-center overflow-hidden">
                         {/* eslint-disable-next-line @next/next/no-img-element */}

@@ -1247,6 +1247,8 @@ export default function PatientActivityCard({
       setDealSaveError(null);
 
       if (editingDeal) {
+        const previousStageId = editingDeal.stage_id;
+
         const { data, error } = await supabaseClient
           .from("deals")
           .update({
@@ -1275,6 +1277,25 @@ export default function PatientActivityCard({
         setDeals((prev) =>
           prev.map((existing) => (existing.id === updated.id ? updated : existing)),
         );
+
+        if (previousStageId !== updated.stage_id) {
+          try {
+            void fetch("/api/workflows/deal-stage-changed", {
+              method: "POST",
+              headers: {
+                "Content-Type": "application/json",
+              },
+              body: JSON.stringify({
+                dealId: updated.id,
+                patientId,
+                fromStageId: previousStageId,
+                toStageId: updated.stage_id,
+                pipeline: updated.pipeline,
+              }),
+            });
+          } catch {
+          }
+        }
       } else {
         const { data, error } = await supabaseClient
           .from("deals")

@@ -172,6 +172,10 @@ create table if not exists workflows (
   created_at timestamptz default now()
 );
 
+-- Ensure workflows has a JSONB config column for trigger-specific settings
+alter table if exists workflows
+  add column if not exists config jsonb not null default '{}'::jsonb;
+
 -- Workflow action type enum
 create type if not exists workflow_action_type as enum (
   'draft_email_patient',
