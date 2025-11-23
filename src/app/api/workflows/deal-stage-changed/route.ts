@@ -97,6 +97,21 @@ export async function POST(request: Request) {
       );
     }
 
+    const safeDeal = deal as {
+      id: string;
+      title: string | null;
+      pipeline: string | null;
+      notes: string | null;
+    };
+
+    const safePatient = patient as {
+      id: string;
+      first_name: string | null;
+      last_name: string | null;
+      email: string | null;
+      phone: string | null;
+    };
+
     const stageIdsToFetch: string[] = [];
     if (fromStageId) stageIdsToFetch.push(fromStageId);
     if (toStageId) stageIdsToFetch.push(toStageId);
@@ -170,17 +185,17 @@ export async function POST(request: Request) {
 
     const templateContext = {
       patient: {
-        id: patient.id,
-        first_name: patient.first_name,
-        last_name: patient.last_name,
-        email: patient.email,
-        phone: patient.phone,
+        id: safePatient.id,
+        first_name: safePatient.first_name,
+        last_name: safePatient.last_name,
+        email: safePatient.email,
+        phone: safePatient.phone,
       },
       deal: {
-        id: deal.id,
-        title: deal.title,
-        pipeline: deal.pipeline,
-        notes: deal.notes,
+        id: safeDeal.id,
+        title: safeDeal.title,
+        pipeline: safeDeal.pipeline,
+        notes: safeDeal.notes,
       },
       from_stage: fromStage,
       to_stage: toStage,
@@ -204,6 +219,12 @@ export async function POST(request: Request) {
           const config = (action.config || {}) as {
             subject_template?: string;
             body_template?: string;
+            body_html_template?: string;
+            use_html?: boolean;
+            send_mode?: "immediate" | "delay" | "recurring";
+            delay_minutes?: number | null;
+            recurring_every_days?: number | null;
+            recurring_times?: number | null;
           };
 
           const subjectTemplate =
@@ -224,86 +245,146 @@ export async function POST(request: Request) {
               "Your clinic team",
             ].join("\n");
 
-          if (!patient.email) {
+          if (!safePatient.email) {
             // No email on file; skip this action for safety.
             // We still continue with other actions/workflows.
             continue;
           }
 
           const subject = renderTemplate(subjectTemplate, templateContext);
-          const bodyText = renderTemplate(bodyTemplate, templateContext);
-          const bodyHtml = textToHtml(bodyText);
 
-          const sentAtIso = new Date().toISOString();
+          const now = new Date();
+          const sendMode: "immediate" | "delay" | "recurring" =
+            config.send_mode === "delay" || config.send_mode === "recurring"
+              ? config.send_mode
+              : "immediate";
 
-          const { data: inserted, error: insertError } = await supabaseAdmin
-            .from("emails")
-            .insert({
-              patient_id: patient.id,
-              deal_id: deal.id,
-              to_address: patient.email,
-              from_address: null,
-              subject,
-              body: bodyHtml,
-              status: "sent",
-              direction: "outbound",
-              sent_at: sentAtIso,
-            })
-            .select("id")
-            .single();
+          const delayMinutes =
+            typeof config.delay_minutes === "number" && config.delay_minutes > 0
+              ? config.delay_minutes
+              : null;
+          const recurringEveryDays =
+            typeof config.recurring_every_days === "number" &&
+            config.recurring_every_days > 0
+              ? config.recurring_every_days
+              : null;
+          const recurringTimes =
+            typeof config.recurring_times === "number" &&
+            config.recurring_times > 0
+              ? Math.min(config.recurring_times, 30)
+              : null;
 
-          if (insertError || !inserted) {
-            console.error("Failed to insert workflow email row", insertError);
-            continue;
-          }
-
-          actionsRun += 1;
-
-          if (!mailgunApiKey || !mailgunDomain) {
-            continue;
-          }
-
-          try {
-            const domain = mailgunDomain as string;
-            const emailId = (inserted as any).id as string;
-            const replyAlias = emailId ? `reply+${emailId}@${domain}` : null;
-
-            const fromAddress = mailgunFromEmail || `no-reply@${domain}`;
-
-            const params = new URLSearchParams();
-            params.append("from", `${mailgunFromName} <${fromAddress}>`);
-            params.append("to", patient.email as string);
-            params.append("subject", subject);
-            params.append("html", bodyHtml);
-
-            if (replyAlias) {
-              params.append("h:Reply-To", replyAlias);
+          async function createAndSendEmail(scheduledAt: Date | null) {
+            let bodyHtml: string;
+            if (
+              config.use_html &&
+              config.body_html_template &&
+              config.body_html_template.trim().length > 0
+            ) {
+              const htmlTemplate = config.body_html_template;
+              bodyHtml = renderTemplate(htmlTemplate, templateContext);
+            } else {
+              const bodyText = renderTemplate(bodyTemplate, templateContext);
+              bodyHtml = textToHtml(bodyText);
             }
 
-            const auth = Buffer.from(`api:${mailgunApiKey}`).toString("base64");
+            const effectiveDate = scheduledAt ?? now;
+            const isFuture = effectiveDate.getTime() > now.getTime();
+            const sentStatus = isFuture ? "queued" : "sent";
+            const sentAtIso = effectiveDate.toISOString();
 
-            const response = await fetch(
-              `${mailgunApiBaseUrl}/v3/${domain}/messages`,
-              {
-                method: "POST",
-                headers: {
-                  Authorization: `Basic ${auth}`,
-                  "Content-Type": "application/x-www-form-urlencoded",
+            const { data: inserted, error: insertError } = await supabaseAdmin
+              .from("emails")
+              .insert({
+                patient_id: safePatient.id,
+                deal_id: safeDeal.id,
+                to_address: safePatient.email,
+                from_address: null,
+                subject,
+                body: bodyHtml,
+                status: sentStatus,
+                direction: "outbound",
+                sent_at: sentAtIso,
+              })
+              .select("id")
+              .single();
+
+            if (insertError || !inserted) {
+              console.error("Failed to insert workflow email row", insertError);
+              return;
+            }
+
+            actionsRun += 1;
+
+            if (!mailgunApiKey || !mailgunDomain) {
+              return;
+            }
+
+            try {
+              const domain = mailgunDomain as string;
+              const emailId = (inserted as any).id as string;
+              const replyAlias = emailId ? `reply+${emailId}@${domain}` : null;
+
+              const fromAddress = mailgunFromEmail || `no-reply@${domain}`;
+
+              const params = new URLSearchParams();
+              params.append("from", `${mailgunFromName} <${fromAddress}>`);
+              params.append("to", safePatient.email as string);
+              params.append("subject", subject);
+              params.append("html", bodyHtml);
+
+              if (replyAlias) {
+                params.append("h:Reply-To", replyAlias);
+              }
+
+              if (isFuture) {
+                params.append("o:deliverytime", effectiveDate.toUTCString());
+              }
+
+              const auth = Buffer.from(`api:${mailgunApiKey}`).toString("base64");
+
+              const response = await fetch(
+                `${mailgunApiBaseUrl}/v3/${domain}/messages`,
+                {
+                  method: "POST",
+                  headers: {
+                    Authorization: `Basic ${auth}`,
+                    "Content-Type": "application/x-www-form-urlencoded",
+                  },
+                  body: params.toString(),
                 },
-                body: params.toString(),
-              },
-            );
+              );
 
-            if (!response.ok) {
-              const text = await response.text().catch(() => "");
+              if (!response.ok) {
+                const text = await response.text().catch(() => "");
+                console.error(
+                  "Error sending workflow email via Mailgun",
+                  response.status,
+                  text,
+                );
+              }
+            } catch (sendError) {
               console.error(
-                "Error sending workflow email via Mailgun",
-                response.status,
-                text,
+                "Unexpected error sending workflow email via Mailgun",
+                sendError,
               );
             }
-          } catch (sendError) {
-            console.error("Unexpected error sending workflow email via Mailgun", sendError);
+          }
+
+          if (sendMode === "recurring" && recurringEveryDays && recurringTimes) {
+            const intervalMs = recurringEveryDays * 24 * 60 * 60 * 1000;
+            for (let i = 0; i < recurringTimes; i += 1) {
+              const scheduledAt = new Date(now.getTime() + i * intervalMs);
+              // eslint-disable-next-line no-await-in-loop
+              await createAndSendEmail(scheduledAt);
+            }
+          } else if (sendMode === "delay" && delayMinutes) {
+            const scheduledAt = new Date(
+              now.getTime() + delayMinutes * 60 * 1000,
+            );
+            await createAndSendEmail(scheduledAt);
+          } else {
+            await createAndSendEmail(null);
           }
         }
       }
