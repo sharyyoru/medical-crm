@@ -525,3 +525,52 @@ join (
 ) as s(name, description, base_price)
   on c.name = 'Aesthetics'
 on conflict (category_id, name) do nothing;
+
+-- Chat folders for organizing conversations per staff user
+create table if not exists chat_folders (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  name text not null,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists chat_folders_user_id_idx on chat_folders(user_id);
+
+-- Chat conversations linked to a user and optional folder/patient/deal
+create table if not exists chat_conversations (
+  id uuid primary key default gen_random_uuid(),
+  user_id uuid not null references users(id) on delete cascade,
+  folder_id uuid references chat_folders(id) on delete set null,
+  title text,
+  patient_id uuid references patients(id) on delete set null,
+  deal_id uuid references deals(id) on delete set null,
+  created_at timestamptz default now(),
+  updated_at timestamptz default now()
+);
+
+create index if not exists chat_conversations_user_id_idx
+  on chat_conversations(user_id);
+
+create index if not exists chat_conversations_folder_id_idx
+  on chat_conversations(folder_id);
+
+create index if not exists chat_conversations_user_updated_idx
+  on chat_conversations(user_id, updated_at desc);
+
+-- Chat messages belonging to conversations
+create type if not exists chat_message_role as enum ('user', 'assistant', 'system');
+
+create table if not exists chat_messages (
+  id uuid primary key default gen_random_uuid(),
+  conversation_id uuid not null references chat_conversations(id) on delete cascade,
+  role chat_message_role not null,
+  content text not null,
+  created_at timestamptz default now()
+);
+
+create index if not exists chat_messages_conversation_id_idx
+  on chat_messages(conversation_id);
+
+create index if not exists chat_messages_conversation_created_idx
+  on chat_messages(conversation_id, created_at);
