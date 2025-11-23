@@ -14,6 +14,7 @@ type ConsultationRecordType =
   | "invoice"
   | "file"
   | "photo"
+  | "3d"
   | "patient_information"
   | "documents"
   | "form_photos";
@@ -310,6 +311,7 @@ export default function MedicalConsultationsCard({
     { value: "invoice", label: "Invoice" },
     { value: "file", label: "File" },
     { value: "photo", label: "Photo" },
+    { value: "3d", label: "3D" },
     { value: "patient_information", label: "Patient Information" },
     { value: "documents", label: "Documents" },
     { value: "form_photos", label: "Form Photos" },
@@ -2512,6 +2514,7 @@ export default function MedicalConsultationsCard({
                 const isNotes = row.record_type === "notes";
                 const isPrescription = row.record_type === "prescription";
                 const isInvoice = row.record_type === "invoice";
+                const is3d = row.record_type === "3d";
 
                 const baseRecordTypeLabel =
                   consultationRecordTypeOptions.find(
@@ -2549,11 +2552,29 @@ export default function MedicalConsultationsCard({
                 const totalSeconds = row.duration_seconds ?? 0;
                 const displayDuration = formatDuration(totalSeconds);
 
+                let threeDMeta: {
+                  reconstruction_type?: string | null;
+                  player_id?: string | null;
+                } | null = null;
+
+                if (
+                  is3d &&
+                  typeof row.content === "string" &&
+                  row.content.trim()
+                ) {
+                  try {
+                    const parsed = JSON.parse(row.content) as {
+                      reconstruction_type?: string | null;
+                      player_id?: string | null;
+                    };
+                    threeDMeta = parsed;
+                  } catch {
+                    threeDMeta = null;
+                  }
+                }
+
                 return (
-                  <div
-                    key={row.id}
-                    className={cardClassName}
-                  >
+                  <div key={row.id} className={cardClassName}>
                     <div className="flex items-start justify-between gap-3">
                       <div className="flex items-start gap-2">
                         <span
@@ -2576,6 +2597,25 @@ export default function MedicalConsultationsCard({
                         <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-mono text-slate-700">
                           {displayDuration}
                         </span>
+                        {is3d &&
+                        threeDMeta?.player_id &&
+                        threeDMeta.reconstruction_type ? (
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const crType = threeDMeta?.reconstruction_type;
+                              const playerId = threeDMeta?.player_id;
+                              if (!crType || !playerId) return;
+                              const url = `/patients/${row.patient_id}?mode=medical&m_tab=3d&show3d=1&cr_player_id=${encodeURIComponent(
+                                playerId,
+                              )}&cr_type=${crType}`;
+                              router.push(url);
+                            }}
+                            className="inline-flex items-center rounded-full border border-sky-200 bg-sky-600 px-2 py-0.5 text-[10px] font-medium text-white shadow-sm hover:bg-sky-700"
+                          >
+                            Open 3D
+                          </button>
+                        ) : null}
                         {isCashInvoice && !isComplimentaryInvoice ? (
                           row.invoice_is_paid ? (
                             <>
@@ -2639,6 +2679,21 @@ export default function MedicalConsultationsCard({
                           </span>
                         ) : null}
                       </div>
+                      {is3d && threeDMeta ? (
+                        <div className="mt-1 flex flex-wrap items-center gap-2 text-[10px] text-slate-600">
+                          <span>
+                            Type:
+                            <span className="ml-1 font-semibold capitalize">
+                              {threeDMeta.reconstruction_type ?? "Unknown"}
+                            </span>
+                          </span>
+                          {threeDMeta.player_id ? (
+                            <span className="rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-mono text-slate-700">
+                              Player ID: {threeDMeta.player_id}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
                       {(isNotes || isPrescription || isInvoice) && row.content ? (
                         <div
                           className="mt-1 text-[11px] leading-relaxed text-slate-800"

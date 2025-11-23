@@ -21,6 +21,8 @@ function getCookie(name: string): string | null {
   return null;
 }
 
+const CRISALIX_PLAYER_SCRIPT_URL = `${(process.env.CRISALIX_API_BASE_URL ?? "https://api3d-staging.crisalix.com").replace(/\/$/, "")}/v2/player.js`;
+
 let playerScriptLoading: Promise<void> | null = null;
 
 function loadPlayerScriptOnce(): Promise<void> {
@@ -30,7 +32,7 @@ function loadPlayerScriptOnce(): Promise<void> {
   if (!playerScriptLoading) {
     playerScriptLoading = new Promise<void>((resolve, reject) => {
       const existing = document.querySelector<HTMLScriptElement>(
-        "script[src='https://api3d-staging.crisalix.com/v2/player.js']",
+        `script[src='${CRISALIX_PLAYER_SCRIPT_URL}']`,
       );
       if (existing) {
         existing.addEventListener("load", () => resolve());
@@ -39,7 +41,7 @@ function loadPlayerScriptOnce(): Promise<void> {
       }
 
       const script = document.createElement("script");
-      script.src = "https://api3d-staging.crisalix.com/v2/player.js";
+      script.src = CRISALIX_PLAYER_SCRIPT_URL;
       script.async = true;
       script.onload = () => resolve();
       script.onerror = () => reject(new Error("Failed to load player.js"));

@@ -59,10 +59,22 @@ export default function Patient3DSetupPage() {
   function handleUseExisting() {
     if (!type || !existingPlayerId) return;
 
-    const url = `/patients/${patientId}?mode=medical&show3d=1&cr_player_id=${encodeURIComponent(
-      existingPlayerId,
-    )}&cr_type=${type}`;
-    router.push(url);
+    void (async () => {
+      try {
+        await fetch("/api/consultations/3d", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            patientId,
+            reconstructionType: type,
+            playerId: existingPlayerId,
+          }),
+        });
+      } catch {
+      }
+
+      router.push(`/patients/${patientId}?mode=medical&m_tab=3d`);
+    })();
   }
 
   function handleCreateNew() {
@@ -107,13 +119,21 @@ export default function Patient3DSetupPage() {
       const playerId = data.patient?.player_id ?? null;
 
       if (playerId) {
-        const url = `/patients/${patientId}?mode=medical&show3d=1&cr_player_id=${encodeURIComponent(
-          playerId,
-        )}&cr_type=${type}`;
-        router.push(url);
-      } else {
-        router.push(`/patients/${patientId}?mode=medical`);
+        try {
+          await fetch("/api/consultations/3d", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              patientId,
+              reconstructionType: type,
+              playerId,
+            }),
+          });
+        } catch {
+        }
       }
+
+      router.push(`/patients/${patientId}?mode=medical&m_tab=3d`);
     } catch (err) {
       setError("Unexpected error while creating 3D reconstruction.");
       // eslint-disable-next-line no-console

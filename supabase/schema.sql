@@ -385,12 +385,13 @@ create index if not exists patient_edit_locks_user_id_idx
   on patient_edit_locks(user_id);
 
 -- Consultation record type enum (aligns with medical tabs: notes onward)
-create type consultation_record_type as enum (
+create type if not exists consultation_record_type as enum (
   'notes',
   'prescription',
   'invoice',
   'file',
   'photo',
+  '3d',
   'patient_information',
   'documents',
   'form_photos'

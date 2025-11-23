@@ -25,6 +25,7 @@ type MedicalTab =
   | "invoice"
   | "file"
   | "photo"
+  | "3d"
   | "patient_information"
   | "documents"
   | "form_photos";
@@ -279,6 +280,7 @@ export default async function PatientPage({
     rawMedicalTab === "invoice" ||
     rawMedicalTab === "file" ||
     rawMedicalTab === "photo" ||
+    rawMedicalTab === "3d" ||
     rawMedicalTab === "patient_information" ||
     rawMedicalTab === "documents" ||
     rawMedicalTab === "form_photos"
@@ -290,6 +292,7 @@ export default async function PatientPage({
     { id: "notes", label: "Notes" },
     { id: "prescription", label: "Prescription" },
     { id: "invoice", label: "Invoice" },
+    { id: "3d", label: "3D" },
     { id: "patient_information", label: "Patient Information" },
     { id: "documents", label: "Documents" },
   ];
@@ -694,6 +697,10 @@ export default async function PatientPage({
 
               <MedicalConsultationsCard patientId={patient.id} recordTypeFilter="invoice" />
             </>
+          ) : null}
+
+          {medicalTab === "3d" ? (
+            <MedicalConsultationsCard patientId={patient.id} recordTypeFilter="3d" />
           ) : null}
 
           {medicalTab === "file" ? (
