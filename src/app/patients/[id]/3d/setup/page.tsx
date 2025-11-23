@@ -1,6 +1,6 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { ChangeEvent, FormEvent, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 type ReconstructionType = "breast" | "face" | "body";
@@ -15,6 +15,10 @@ export default function Patient3DSetupPage() {
   const [error, setError] = useState<string | null>(null);
   const [checkingExisting, setCheckingExisting] = useState(false);
   const [existingPlayerId, setExistingPlayerId] = useState<string | null>(null);
+  const [leftPreviewUrl, setLeftPreviewUrl] = useState<string | null>(null);
+  const [frontPreviewUrl, setFrontPreviewUrl] = useState<string | null>(null);
+  const [rightPreviewUrl, setRightPreviewUrl] = useState<string | null>(null);
+  const [backPreviewUrl, setBackPreviewUrl] = useState<string | null>(null);
 
   const patientId = params?.id ?? "";
 
@@ -80,6 +84,27 @@ export default function Patient3DSetupPage() {
   function handleCreateNew() {
     setExistingPlayerId(null);
     setStep("form");
+  }
+
+  function handleImageChange(
+    event: ChangeEvent<HTMLInputElement>,
+    kind: "left" | "front" | "right" | "back",
+  ) {
+    const file = event.target.files?.[0] ?? null;
+
+    const setPreview =
+      kind === "left"
+        ? setLeftPreviewUrl
+        : kind === "front"
+          ? setFrontPreviewUrl
+          : kind === "right"
+            ? setRightPreviewUrl
+            : setBackPreviewUrl;
+
+    setPreview((previous) => {
+      if (previous) URL.revokeObjectURL(previous);
+      return file ? URL.createObjectURL(file) : null;
+    });
   }
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -381,37 +406,85 @@ export default function Patient3DSetupPage() {
                   <label className="block text-[11px] font-medium text-slate-700">
                     Left Profile <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="file"
-                    name="left_profile"
-                    accept="image/*"
-                    required
-                    className="block w-full text-[11px] text-slate-700"
-                  />
+                  <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-sky-300 bg-sky-50 px-3 py-4 text-center text-[11px] font-medium text-sky-700 hover:bg-sky-100">
+                    <span>Click to upload</span>
+                    <span className="mt-0.5 text-[10px] font-normal text-slate-500">
+                      JPG, PNG or similar
+                    </span>
+                    <input
+                      type="file"
+                      name="left_profile"
+                      accept="image/*"
+                      required
+                      className="sr-only"
+                      onChange={(event) => handleImageChange(event, "left")}
+                    />
+                  </label>
+                  {leftPreviewUrl ? (
+                    <div className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                      <img
+                        src={leftPreviewUrl}
+                        alt="Left profile preview"
+                        className="h-32 w-full object-cover"
+                      />
+                    </div>
+                  ) : null}
                 </div>
                 <div className="space-y-1">
                   <label className="block text-[11px] font-medium text-slate-700">
                     Front/Portrait <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="file"
-                    name="front_profile"
-                    accept="image/*"
-                    required
-                    className="block w-full text-[11px] text-slate-700"
-                  />
+                  <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-sky-300 bg-sky-50 px-3 py-4 text-center text-[11px] font-medium text-sky-700 hover:bg-sky-100">
+                    <span>Click to upload</span>
+                    <span className="mt-0.5 text-[10px] font-normal text-slate-500">
+                      JPG, PNG or similar
+                    </span>
+                    <input
+                      type="file"
+                      name="front_profile"
+                      accept="image/*"
+                      required
+                      className="sr-only"
+                      onChange={(event) => handleImageChange(event, "front")}
+                    />
+                  </label>
+                  {frontPreviewUrl ? (
+                    <div className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                      <img
+                        src={frontPreviewUrl}
+                        alt="Front/portrait preview"
+                        className="h-32 w-full object-cover"
+                      />
+                    </div>
+                  ) : null}
                 </div>
                 <div className="space-y-1">
                   <label className="block text-[11px] font-medium text-slate-700">
                     Right Profile <span className="text-red-500">*</span>
                   </label>
-                  <input
-                    type="file"
-                    name="right_profile"
-                    accept="image/*"
-                    required
-                    className="block w-full text-[11px] text-slate-700"
-                  />
+                  <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-sky-300 bg-sky-50 px-3 py-4 text-center text-[11px] font-medium text-sky-700 hover:bg-sky-100">
+                    <span>Click to upload</span>
+                    <span className="mt-0.5 text-[10px] font-normal text-slate-500">
+                      JPG, PNG or similar
+                    </span>
+                    <input
+                      type="file"
+                      name="right_profile"
+                      accept="image/*"
+                      required
+                      className="sr-only"
+                      onChange={(event) => handleImageChange(event, "right")}
+                    />
+                  </label>
+                  {rightPreviewUrl ? (
+                    <div className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                      <img
+                        src={rightPreviewUrl}
+                        alt="Right profile preview"
+                        className="h-32 w-full object-cover"
+                      />
+                    </div>
+                  ) : null}
                 </div>
               </div>
 
@@ -421,13 +494,29 @@ export default function Patient3DSetupPage() {
                     <label className="block text-[11px] font-medium text-slate-700">
                       Back Profile <span className="text-red-500">*</span>
                     </label>
-                    <input
-                      type="file"
-                      name="back_profile"
-                      accept="image/*"
-                      required
-                      className="block w-full text-[11px] text-slate-700"
-                    />
+                    <label className="flex cursor-pointer flex-col items-center justify-center rounded-lg border border-dashed border-sky-300 bg-sky-50 px-3 py-4 text-center text-[11px] font-medium text-sky-700 hover:bg-sky-100">
+                      <span>Click to upload</span>
+                      <span className="mt-0.5 text-[10px] font-normal text-slate-500">
+                        JPG, PNG or similar
+                      </span>
+                      <input
+                        type="file"
+                        name="back_profile"
+                        accept="image/*"
+                        required
+                        className="sr-only"
+                        onChange={(event) => handleImageChange(event, "back")}
+                      />
+                    </label>
+                    {backPreviewUrl ? (
+                      <div className="mt-1 overflow-hidden rounded-lg border border-slate-200 bg-slate-50">
+                        <img
+                          src={backPreviewUrl}
+                          alt="Back profile preview"
+                          className="h-32 w-full object-cover"
+                        />
+                      </div>
+                    ) : null}
                   </div>
                 </div>
               ) : null}
