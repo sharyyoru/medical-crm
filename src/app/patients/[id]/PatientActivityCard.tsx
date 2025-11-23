@@ -2563,40 +2563,6 @@ export default function PatientActivityCard({
               WhatsApp activity for this patient. Messages are sent via Twilio WhatsApp
               using the clinic number.
             </p>
-            <form onSubmit={handleWhatsAppSend} className="space-y-2">
-              <div className="space-y-1">
-                <p className="text-[11px] font-medium text-slate-600">To</p>
-                <input
-                  type="text"
-                  value={whatsappTo}
-                  onChange={(event) => setWhatsappTo(event.target.value)}
-                  placeholder="Patient WhatsApp number (e.g. +41790000000)"
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-1.5 text-xs text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                />
-              </div>
-              <div className="space-y-1">
-                <p className="text-[11px] font-medium text-slate-600">Message</p>
-                <textarea
-                  value={whatsappBody}
-                  onChange={(event) => setWhatsappBody(event.target.value)}
-                  rows={3}
-                  className="w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-                  placeholder="Type a WhatsApp message to this patient"
-                />
-              </div>
-              {whatsappError ? (
-                <p className="text-[11px] text-red-600">{whatsappError}</p>
-              ) : null}
-              <div className="flex items-center justify-end">
-                <button
-                  type="submit"
-                  disabled={whatsappSending}
-                  className="inline-flex items-center rounded-full border border-emerald-500/80 bg-emerald-600 px-3 py-1.5 text-[11px] font-medium text-white shadow-sm hover:bg-emerald-700 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  Send WhatsApp
-                </button>
-              </div>
-            </form>
             <div className="mt-3 space-y-1">
               <p className="text-[11px] font-medium text-slate-600">Conversation</p>
               {whatsappLoading ? (
