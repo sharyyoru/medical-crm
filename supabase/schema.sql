@@ -546,7 +546,9 @@ create table if not exists chat_conversations (
   patient_id uuid references patients(id) on delete set null,
   deal_id uuid references deals(id) on delete set null,
   created_at timestamptz default now(),
-  updated_at timestamptz default now()
+  updated_at timestamptz default now(),
+  is_archived boolean not null default false,
+  archived_at timestamptz
 );
 
 create index if not exists chat_conversations_user_id_idx
@@ -557,6 +559,13 @@ create index if not exists chat_conversations_folder_id_idx
 
 create index if not exists chat_conversations_user_updated_idx
   on chat_conversations(user_id, updated_at desc);
+
+alter table if exists chat_conversations
+  add column if not exists is_archived boolean not null default false,
+  add column if not exists archived_at timestamptz;
+
+create index if not exists chat_conversations_user_archived_idx
+  on chat_conversations(user_id, is_archived, updated_at desc);
 
 -- Chat messages belonging to conversations
 create type if not exists chat_message_role as enum ('user', 'assistant', 'system');

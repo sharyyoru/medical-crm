@@ -2,6 +2,7 @@
 
 import { FormEvent, useEffect, useState } from "react";
 import { supabaseClient } from "@/lib/supabaseClient";
+import CollapseSidebarOnMount from "@/components/CollapseSidebarOnMount";
 
 type ChatMessage = {
   id: string;
@@ -14,12 +15,32 @@ type ChatConversation = {
   title: string | null;
   created_at: string;
   updated_at: string;
+  is_archived?: boolean;
+  archived_at?: string | null;
 };
+
+function generateConversationTitleFromContent(source: string): string {
+  const normalized = source.trim().replace(/\s+/g, " ");
+  if (!normalized) return "New chat";
+  const maxLength = 60;
+  if (normalized.length <= maxLength) return normalized;
+  return `${normalized.slice(0, maxLength)}…`;
+}
+
+function isPlaceholderTitle(title: string | null | undefined): boolean {
+  if (!title) return true;
+  const trimmed = title.trim().toLowerCase();
+  if (!trimmed) return true;
+  if (trimmed === "new chat") return true;
+  if (trimmed === "untitled chat") return true;
+  return false;
+}
 
 function formatConversationTitle(conversation: ChatConversation): string {
   const raw = (conversation.title || "").trim();
-  if (raw) return raw;
-  return "Untitled chat";
+  if (!raw) return "Untitled chat";
+  if (raw.length <= 60) return raw;
+  return `${raw.slice(0, 60)}…`;
 }
 
 export default function ChatWithAliicePage() {
@@ -37,6 +58,7 @@ export default function ChatWithAliicePage() {
     null,
   );
   const [initialMessagesLoading, setInitialMessagesLoading] = useState(false);
+  const [editingTitle, setEditingTitle] = useState("");
 
   useEffect(() => {
     let isMounted = true;
@@ -62,8 +84,9 @@ export default function ChatWithAliicePage() {
 
         const { data: rows, error } = await supabaseClient
           .from("chat_conversations")
-          .select("id, title, created_at, updated_at")
+          .select("id, title, created_at, updated_at, is_archived, archived_at")
           .eq("user_id", authUser.id)
+          .eq("is_archived", false)
           .order("updated_at", { ascending: false });
 
         if (!isMounted) return;
@@ -77,6 +100,8 @@ export default function ChatWithAliicePage() {
             title: (row.title as string | null) ?? null,
             created_at: row.created_at as string,
             updated_at: row.updated_at as string,
+            is_archived: (row.is_archived as boolean | null) ?? false,
+            archived_at: (row.archived_at as string | null) ?? null,
           }));
           setConversations(items);
           if (items.length > 0) {
@@ -99,6 +124,24 @@ export default function ChatWithAliicePage() {
       isMounted = false;
     };
   }, []);
+
+  useEffect(() => {
+    if (!activeConversationId) {
+      setEditingTitle("");
+      return;
+    }
+
+    const current = conversations.find(
+      (conversation) => conversation.id === activeConversationId,
+    );
+
+    if (!current) {
+      setEditingTitle("");
+      return;
+    }
+
+    setEditingTitle(current.title ?? "");
+  }, [activeConversationId, conversations]);
 
   useEffect(() => {
     if (!activeConversationId) {
@@ -164,9 +207,7 @@ export default function ChatWithAliicePage() {
       return null;
     }
 
-    const titleSource = firstMessageContent.trim();
-    const title =
-      titleSource.length > 0 ? titleSource.slice(0, 80) : "New chat";
+    const title = generateConversationTitleFromContent(firstMessageContent);
 
     const { data, error } = await supabaseClient
       .from("chat_conversations")
@@ -174,7 +215,7 @@ export default function ChatWithAliicePage() {
         user_id: currentUserId,
         title,
       })
-      .select("id, title, created_at, updated_at")
+      .select("id, title, created_at, updated_at, is_archived, archived_at")
       .single();
 
     if (error || !data) {
@@ -190,6 +231,8 @@ export default function ChatWithAliicePage() {
       title: (row.title as string | null) ?? null,
       created_at: row.created_at as string,
       updated_at: row.updated_at as string,
+      is_archived: (row.is_archived as boolean | null) ?? false,
+      archived_at: (row.archived_at as string | null) ?? null,
     };
 
     setConversations((prev) => [conversation, ...prev]);
@@ -213,7 +256,7 @@ export default function ChatWithAliicePage() {
           user_id: currentUserId,
           title: "New chat",
         })
-        .select("id, title, created_at, updated_at")
+        .select("id, title, created_at, updated_at, is_archived, archived_at")
         .single();
 
       if (error || !data) {
@@ -229,6 +272,8 @@ export default function ChatWithAliicePage() {
         title: (row.title as string | null) ?? null,
         created_at: row.created_at as string,
         updated_at: row.updated_at as string,
+        is_archived: (row.is_archived as boolean | null) ?? false,
+        archived_at: (row.archived_at as string | null) ?? null,
       };
 
       setConversations((prev) => [conversation, ...prev]);
@@ -344,16 +389,7 @@ export default function ChatWithAliicePage() {
             console.error("Failed to save assistant message", insertError);
           }
 
-          const { error: updateError } = await supabaseClient
-            .from("chat_conversations")
-            .update({
-              updated_at: nowIso,
-            })
-            .eq("id", conversationId);
-
-          if (updateError) {
-            console.error("Failed to update conversation", updateError);
-          }
+          let shouldUpdateTitle = false;
 
           setConversations((prev) => {
             const items = prev.filter((item) => item.id !== conversationId);
@@ -367,10 +403,11 @@ export default function ChatWithAliicePage() {
                 updated_at: nowIso,
               };
 
-            const nextTitle =
-              (base.title && base.title.trim().length > 0
-                ? base.title
-                : userMessage.content.slice(0, 80)) || "New chat";
+            shouldUpdateTitle = isPlaceholderTitle(base.title);
+
+            const nextTitle = shouldUpdateTitle
+              ? generateConversationTitleFromContent(userMessage.content)
+              : base.title ?? generateConversationTitleFromContent(userMessage.content);
 
             const updated: ChatConversation = {
               ...base,
@@ -380,6 +417,25 @@ export default function ChatWithAliicePage() {
 
             return [updated, ...items];
           });
+
+          const updates: { updated_at: string; title?: string } = {
+            updated_at: nowIso,
+          };
+
+          if (shouldUpdateTitle) {
+            updates.title = generateConversationTitleFromContent(
+              userMessage.content,
+            );
+          }
+
+          const { error: updateError } = await supabaseClient
+            .from("chat_conversations")
+            .update(updates)
+            .eq("id", conversationId);
+
+          if (updateError) {
+            console.error("Failed to update conversation", updateError);
+          }
         } catch (saveError) {
           console.error("Failed to save assistant message", saveError);
         }
@@ -392,8 +448,118 @@ export default function ChatWithAliicePage() {
     }
   }
 
+  async function handleTitleSave() {
+    if (!activeConversationId || !currentUserId) {
+      return;
+    }
+
+    const trimmed = editingTitle.trim();
+    const nextTitle = trimmed
+      ? trimmed.slice(0, 120)
+      : null;
+
+    // Optimistically update local state so the UI feels instant
+    setConversations((prev) =>
+      prev.map((conversation) =>
+        conversation.id === activeConversationId
+          ? {
+              ...conversation,
+              title: nextTitle,
+            }
+          : conversation,
+      ),
+    );
+
+    try {
+      const { error: updateError } = await supabaseClient
+        .from("chat_conversations")
+        .update({
+          title: nextTitle,
+        })
+        .eq("id", activeConversationId)
+        .eq("user_id", currentUserId);
+
+      if (updateError) {
+        setError(updateError.message ?? "Failed to rename conversation.");
+      }
+    } catch {
+      setError("Failed to rename conversation.");
+    }
+  }
+
+  async function handleArchiveActiveConversation() {
+    if (!activeConversationId || !currentUserId) {
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+
+    // Optimistically remove the conversation and pick the next one
+    let nextActiveId: string | null = null;
+    setConversations((prev) => {
+      const remaining = prev.filter(
+        (conversation) => conversation.id !== activeConversationId,
+      );
+      const next = remaining[0] ?? null;
+      nextActiveId = next ? next.id : null;
+      return remaining;
+    });
+
+    setActiveConversationId(nextActiveId);
+    if (!nextActiveId) {
+      setMessages([]);
+      setEditingTitle("");
+    }
+
+    try {
+      const { error: updateError } = await supabaseClient
+        .from("chat_conversations")
+        .update({
+          is_archived: true,
+          archived_at: nowIso,
+        })
+        .eq("id", activeConversationId)
+        .eq("user_id", currentUserId);
+
+      if (updateError) {
+        setError(updateError.message ?? "Failed to archive conversation.");
+      }
+    } catch {
+      setError("Failed to archive conversation.");
+    }
+  }
+
+  async function handleDeleteActiveConversation() {
+    if (!activeConversationId || !currentUserId) {
+      return;
+    }
+
+    // Optimistically remove from local state
+    setConversations((prev) =>
+      prev.filter((conversation) => conversation.id !== activeConversationId),
+    );
+    setActiveConversationId(null);
+    setMessages([]);
+    setEditingTitle("");
+
+    try {
+      const { error: deleteError } = await supabaseClient
+        .from("chat_conversations")
+        .delete()
+        .eq("id", activeConversationId)
+        .eq("user_id", currentUserId);
+
+      if (deleteError) {
+        setError(deleteError.message ?? "Failed to delete conversation.");
+      }
+    } catch {
+      setError("Failed to delete conversation.");
+    }
+  }
+
   return (
-    <div className="space-y-4">
+    <div className="h-full space-y-4">
+      <CollapseSidebarOnMount />
       <div>
         <h1 className="text-xl font-semibold text-slate-900">Chat with Aliice</h1>
         <p className="text-sm text-slate-500">
@@ -401,95 +567,145 @@ export default function ChatWithAliicePage() {
           communication.
         </p>
       </div>
-      <div className="flex items-center justify-between text-[12px] text-slate-600">
-        <div className="flex items-center gap-2">
-          <span>Conversation</span>
-          {conversationsLoading ? (
-            <span className="text-slate-400">Loading...</span>
-          ) : conversations.length === 0 ? (
-            <span className="text-slate-400">No saved conversations yet</span>
-          ) : (
-            <select
-              value={activeConversationId ?? (conversations[0]?.id ?? "")}
-              onChange={(event) => {
-                const value = event.target.value;
-                setActiveConversationId(value || null);
-              }}
-              className="rounded-md border border-slate-200 bg-white px-2 py-1 text-[12px] text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+      <div className="flex min-h-[540px] flex-col gap-4 sm:flex-row">
+        <aside className="flex w-full flex-shrink-0 flex-col rounded-xl border border-slate-200/80 bg-white/90 text-[13px] shadow-[0_12px_30px_rgba(15,23,42,0.12)] sm:w-64">
+          <div className="flex items-center justify-between border-b border-slate-100/80 px-3 py-2">
+            <span className="text-xs font-semibold uppercase tracking-wide text-slate-600">
+              Conversations
+            </span>
+            <button
+              type="button"
+              onClick={handleStartNewConversation}
+              disabled={loading || !currentUserId}
+              className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-slate-50 px-2 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
             >
-              {conversations.map((conversation) => (
-                <option key={conversation.id} value={conversation.id}>
-                  {formatConversationTitle(conversation)}
-                </option>
-              ))}
-            </select>
-          )}
-        </div>
-        <button
-          type="button"
-          onClick={handleStartNewConversation}
-          disabled={loading || !currentUserId}
-          className="inline-flex items-center justify-center rounded-full border border-slate-200 bg-white px-3 py-1 text-[11px] font-medium text-slate-700 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
-        >
-          New chat
-        </button>
-      </div>
-      <div className="flex flex-col gap-3 rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
-        <div className="flex-1 min-h-[220px] max-h-[440px] space-y-2 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/60 p-3 text-[13px]">
-          {initialMessagesLoading ? (
-            <p className="text-[12px] text-slate-500">Loading conversation...</p>
-          ) : messages.length === 0 ? (
-            <p className="text-[12px] text-slate-500">
-              Start a conversation with Aliice about bookings, post-op docs, or
-              how to communicate with patients and insurers.
-            </p>
-          ) : (
-            messages.map((message) => (
-              <div
-                key={message.id}
-                className={
-                  "flex " +
-                  (message.role === "user"
-                    ? "justify-end text-right"
-                    : "justify-start text-left")
-                }
+              New
+            </button>
+          </div>
+          <div className="flex-1 space-y-1 overflow-y-auto px-2 py-2">
+            {conversationsLoading ? (
+              <p className="px-2 text-[12px] text-slate-400">Loading...</p>
+            ) : conversations.length === 0 ? (
+              <p className="px-2 text-[12px] text-slate-400">
+                No conversations yet.
+              </p>
+            ) : (
+              conversations.map((conversation) => {
+                const isActive = conversation.id === activeConversationId;
+                return (
+                  <button
+                    key={conversation.id}
+                    type="button"
+                    onClick={() => setActiveConversationId(conversation.id)}
+                    className={
+                      "flex w-full items-center justify-between gap-2 rounded-lg px-3 py-2 text-left text-[12px] " +
+                      (isActive
+                        ? "bg-sky-600 text-white shadow-sm"
+                        : "bg-white/70 text-slate-800 hover:bg-slate-100")
+                    }
+                  >
+                    <span className="line-clamp-2">
+                      {formatConversationTitle(conversation)}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </aside>
+        <div className="flex min-w-0 flex-1 flex-col rounded-xl border border-slate-200/80 bg-white/90 p-4 text-sm shadow-[0_16px_40px_rgba(15,23,42,0.08)] backdrop-blur">
+          <div className="mb-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex-1">
+              <input
+                type="text"
+                value={editingTitle}
+                onChange={(event) => setEditingTitle(event.target.value)}
+                onBlur={handleTitleSave}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleTitleSave();
+                  }
+                }}
+                placeholder="Name this conversation..."
+                className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-[13px] text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+              />
+            </div>
+            <div className="flex items-center justify-end gap-2 text-[11px]">
+              <button
+                type="button"
+                onClick={handleArchiveActiveConversation}
+                disabled={!activeConversationId || !currentUserId}
+                className="rounded-full border border-slate-200 bg-slate-50 px-2.5 py-1 font-medium text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
+                Archive
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteActiveConversation}
+                disabled={!activeConversationId || !currentUserId}
+                className="rounded-full border border-rose-200 bg-rose-50 px-2.5 py-1 font-medium text-rose-700 hover:bg-rose-100 disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Delete
+              </button>
+            </div>
+          </div>
+          
+          <div className="flex-1 min-h-[220px] max-h-[440px] space-y-2 overflow-y-auto rounded-lg border border-slate-100 bg-slate-50/60 p-3 text-[13px]">
+            {initialMessagesLoading ? (
+              <p className="text-[12px] text-slate-500">Loading conversation...</p>
+            ) : messages.length === 0 ? (
+              <p className="text-[12px] text-slate-500">
+                Start a conversation with Aliice about bookings, post-op docs, or
+                how to communicate with patients and insurers.
+              </p>
+            ) : (
+              messages.map((message) => (
                 <div
+                  key={message.id}
                   className={
-                    "inline-block max-w-[80%] rounded-2xl px-3 py-2 text-[12px] " +
+                    "flex " +
                     (message.role === "user"
-                      ? "bg-sky-600 text-white"
-                      : "bg-slate-100 text-slate-900")
+                      ? "justify-end text-right"
+                      : "justify-start text-left")
                   }
                 >
-                  {message.content}
+                  <div
+                    className={
+                      "inline-block max-w-[80%] rounded-2xl px-3 py-2 text-[12px] " +
+                      (message.role === "user"
+                        ? "bg-sky-600 text-white"
+                        : "bg-slate-100 text-slate-900")
+                    }
+                  >
+                    {message.content}
+                  </div>
                 </div>
-              </div>
-            ))
-          )}
-        </div>
-
-        {(error || conversationsError) && (
-          <div className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
-            {error || conversationsError}
+              ))
+            )}
           </div>
-        )}
-        <form onSubmit={handleSubmit} className="flex items-end gap-2 pt-1">
-          <textarea
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            rows={2}
-            placeholder="Ask Aliice a question..."
-            className="flex-1 resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-          />
-          <button
-            type="submit"
-            disabled={loading || !input.trim() || initialMessagesLoading}
-            className="inline-flex items-center justify-center rounded-full border border-sky-500 bg-sky-600 px-4 py-2 text-[12px] font-semibold text-white shadow-sm hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {loading ? "Sending..." : "Send"}
-          </button>
-        </form>
+          {(error || conversationsError) && (
+            <div className="mt-2 rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-[11px] text-red-700">
+              {error || conversationsError}
+            </div>
+          )}
+          <form onSubmit={handleSubmit} className="mt-3 flex items-end gap-2 pt-1">
+            <textarea
+              value={input}
+              onChange={(event) => setInput(event.target.value)}
+              rows={2}
+              placeholder="Ask Aliice a question..."
+              className="flex-1 resize-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[13px] text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+            />
+            <button
+              type="submit"
+              disabled={loading || !input.trim() || initialMessagesLoading}
+              className="inline-flex items-center justify-center rounded-full border border-sky-500 bg-sky-600 px-4 py-2 text-[12px] font-semibold text-white shadow-sm hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {loading ? "Sending..." : "Send"}
+            </button>
+          </form>
+        </div>
       </div>
     </div>
   );
