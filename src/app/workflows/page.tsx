@@ -882,12 +882,14 @@ export default function WorkflowsPage() {
               Configure automations that react when a deal moves between pipeline stages.
             </p>
           </div>
-          <Link
-            href="/patients"
-            className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
-          >
-            <span>Back to patients</span>
-          </Link>
+          <div className="flex items-center gap-2">
+            <Link
+              href="/workflows/all"
+              className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-white px-3 py-1.5 text-xs font-medium text-slate-700 shadow-sm hover:bg-slate-50"
+            >
+              <span>View all workflows</span>
+            </Link>
+          </div>
         </header>
 
         <section className="rounded-2xl border border-slate-200 bg-white/90 px-4 py-5 text-sm text-slate-800 shadow-sm">
