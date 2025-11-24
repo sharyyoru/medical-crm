@@ -2,6 +2,7 @@
 
 import React, { useEffect, useRef, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import { supabaseClient } from "@/lib/supabaseClient";
 
 type DealStage = {
@@ -49,6 +50,8 @@ const TEMPLATE_VARIABLES: TemplateVariable[] = [
   { category: "To stage", path: "to_stage.type", label: "To stage type" },
 ];
 
+const EMAIL_ASSETS_BUCKET = "email-assets";
+
 type TemplateEditorProps = {
   label: string;
   description?: string;
@@ -56,6 +59,8 @@ type TemplateEditorProps = {
   onChange: (value: string) => void;
   rows?: number;
   variables: TemplateVariable[];
+  isHtmlEditor?: boolean;
+  highlightVariables?: boolean;
 };
 
 function TemplateEditor({
@@ -65,11 +70,15 @@ function TemplateEditor({
   onChange,
   rows = 6,
   variables,
+  isHtmlEditor = false,
+  highlightVariables = true,
 }: TemplateEditorProps) {
   const [showPicker, setShowPicker] = useState(false);
   const [search, setSearch] = useState("");
   const [selectionStart, setSelectionStart] = useState<number | null>(null);
   const [selectionEnd, setSelectionEnd] = useState<number | null>(null);
+  const [isUploading, setIsUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   function updateSelectionFromEvent(event: any) {
@@ -78,25 +87,91 @@ function TemplateEditor({
     setSelectionEnd(target.selectionEnd);
   }
 
-  function handleInsert(path: string) {
-    const token = `{{${path}}}`;
+  function insertAtCursor(text: string) {
     const start = selectionStart ?? value.length;
     const end = selectionEnd ?? start;
-    const next = value.slice(0, start) + token + value.slice(end);
+    const next = value.slice(0, start) + text + value.slice(end);
+    
+    // Update the value
     onChange(next);
-    setShowPicker(false);
 
-    const nextCursor = start + token.length;
+    // Calculate new cursor position
+    const nextCursor = start + text.length;
     setSelectionStart(nextCursor);
     setSelectionEnd(nextCursor);
 
-    setTimeout(() => {
+    // Force update cursor position in the next render cycle
+    requestAnimationFrame(() => {
       if (textareaRef.current) {
         textareaRef.current.focus();
         textareaRef.current.selectionStart = nextCursor;
         textareaRef.current.selectionEnd = nextCursor;
+        
+        // Additional check to ensure cursor is in the right position
+        setTimeout(() => {
+          if (textareaRef.current) {
+            textareaRef.current.selectionStart = nextCursor;
+            textareaRef.current.selectionEnd = nextCursor;
+          }
+        }, 10);
       }
-    }, 0);
+    });
+  }
+
+  function handleInsert(path: string) {
+    insertAtCursor(`{{${path}}}`);
+    setShowPicker(false);
+  }
+
+  async function handleImageUpload(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    // Check if the file is an image
+    if (!file.type.startsWith('image/')) {
+      alert('Please upload an image file');
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      const safeName = file.name.replace(/[^a-zA-Z0-9.\-_]/g, "_");
+      const path = `workflow-email-images/${Date.now()}-${safeName}`;
+
+      const { error: uploadError } = await supabaseClient.storage
+        .from(EMAIL_ASSETS_BUCKET)
+        .upload(path, file, {
+          cacheControl: "3600",
+          upsert: false,
+          contentType: file.type || undefined,
+        });
+
+      if (uploadError) {
+        throw uploadError;
+      }
+
+      const { data: publicData } = supabaseClient.storage
+        .from(EMAIL_ASSETS_BUCKET)
+        .getPublicUrl(path);
+
+      const publicUrl = publicData?.publicUrl;
+
+      if (!publicUrl) {
+        throw new Error("Unable to generate public URL for uploaded image.");
+      }
+
+      const imgTag = `<img src="${publicUrl}" alt="Uploaded image" style="max-width: 100%;" />`;
+      insertAtCursor(imgTag);
+    } catch (error) {
+      console.error('Error uploading image:', error);
+      alert('Failed to upload image. Please try again.');
+    } finally {
+      setIsUploading(false);
+      // Reset the file input
+      if (fileInputRef.current) {
+        fileInputRef.current.value = '';
+      }
+    }
   }
 
   const filteredVariables = variables.filter((variable) => {
@@ -159,24 +234,71 @@ function TemplateEditor({
     return nodes;
   }
 
+  // Handle textarea changes while maintaining cursor position
+  const handleTextareaChange = (event: React.ChangeEvent<HTMLTextAreaElement>) => {
+    const { value: newValue, selectionStart, selectionEnd } = event.target;
+    
+    // Update the value
+    onChange(newValue);
+    
+    // Maintain cursor position
+    if (selectionStart !== null && selectionEnd !== null) {
+      setSelectionStart(selectionStart);
+      setSelectionEnd(selectionEnd);
+      
+      // Force update cursor position in the next render cycle
+      setTimeout(() => {
+        if (textareaRef.current) {
+          textareaRef.current.selectionStart = selectionStart;
+          textareaRef.current.selectionEnd = selectionEnd;
+        }
+      }, 0);
+    }
+  };
+
+  const shouldUseOverlay = !isHtmlEditor && highlightVariables;
+
   return (
     <div className="space-y-2">
       <div className="flex items-center justify-between gap-2">
         <label className="block text-xs font-medium text-slate-700">
           {label}
         </label>
-        <button
-          type="button"
-          onClick={() => setShowPicker((open) => !open)}
-          className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-700 hover:bg-slate-100"
-        >
-          Insert variable
-        </button>
+        <div className="flex items-center gap-1">
+          {isHtmlEditor && (
+            <>
+              <input
+                type="file"
+                ref={fileInputRef}
+                accept="image/*"
+                onChange={handleImageUpload}
+                className="hidden"
+                disabled={isUploading}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={isUploading}
+                className="inline-flex items-center gap-1 rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-700 hover:bg-slate-100 disabled:opacity-50"
+                title="Insert image"
+              >
+                {isUploading ? 'Uploading...' : 'Insert image'}
+              </button>
+            </>
+          )}
+          <button
+            type="button"
+            onClick={() => setShowPicker((open) => !open)}
+            className="inline-flex items-center rounded-full border border-slate-200 bg-slate-50 px-2 py-0.5 text-[10px] font-medium text-slate-700 hover:bg-slate-100"
+          >
+            Insert variable
+          </button>
+        </div>
       </div>
       {description ? (
         <p className="text-[10px] text-slate-400">{description}</p>
       ) : null}
-      {showPicker ? (
+      {showPicker && (
         <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
           <input
             type="text"
@@ -218,28 +340,57 @@ function TemplateEditor({
             )}
           </div>
         </div>
-      ) : null}
-      <div className="relative">
-        <pre className="pointer-events-none absolute inset-0 whitespace-pre-wrap rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-5 text-slate-900">
-          {value ? (
-            renderHighlighted()
-          ) : (
-            <span className="text-slate-400">
-              Start typing and use the Insert variable button to personalize this template.
-            </span>
-          )}
-        </pre>
-        <textarea
-          ref={textareaRef}
-          value={value}
-          onChange={(event) => onChange(event.target.value)}
-          onClick={updateSelectionFromEvent}
-          onKeyUp={updateSelectionFromEvent}
-          onSelect={updateSelectionFromEvent}
-          rows={rows}
-          className="relative w-full resize-y rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-xs leading-5 text-transparent caret-sky-600 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
-        />
-      </div>
+      )}
+      {shouldUseOverlay ? (
+        <div className="relative">
+          <pre className="pointer-events-none absolute inset-0 whitespace-pre-wrap break-words rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs leading-5 text-slate-900 font-sans">
+            {value ? (
+              renderHighlighted()
+            ) : (
+              <span className="text-slate-400">
+                Start typing and use the Insert variable button to personalize this template.
+              </span>
+            )}
+          </pre>
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={handleTextareaChange}
+            onClick={updateSelectionFromEvent}
+            onKeyUp={updateSelectionFromEvent}
+            onSelect={updateSelectionFromEvent}
+            rows={rows}
+            className="relative w-full resize-y rounded-lg border border-transparent bg-transparent px-3 py-1.5 text-xs leading-5 font-sans text-transparent caret-sky-600 focus:outline-none"
+          />
+        </div>
+      ) : (
+        <div className="relative">
+          <textarea
+            ref={textareaRef}
+            value={value}
+            onChange={handleTextareaChange}
+            onClick={updateSelectionFromEvent}
+            onKeyUp={updateSelectionFromEvent}
+            onSelect={updateSelectionFromEvent}
+            rows={rows}
+            spellCheck={false}
+            className={
+              isHtmlEditor
+                ? "w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs leading-5 font-mono text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500 whitespace-pre-wrap break-all"
+                : "w-full resize-y rounded-lg border border-slate-200 bg-white px-3 py-1.5 text-xs leading-5 font-sans text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+            }
+            style={
+              isHtmlEditor
+                ? {
+                    wordBreak: 'break-all',
+                    overflowWrap: 'break-word',
+                    whiteSpace: 'pre-wrap',
+                  }
+                : undefined
+            }
+          />
+        </div>
+      )}
     </div>
   );
 }
@@ -414,6 +565,7 @@ function EmailBuilderModal({
               onChange={onBodyHtmlChange}
               rows={10}
               variables={variables}
+              isHtmlEditor={true}
             />
             <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50 p-2">
               <div className="flex items-center justify-between">
@@ -557,7 +709,10 @@ const DEFAULT_BODY_TEMPLATE = [
 
 const DEFAULT_BODY_HTML_TEMPLATE = textTemplateToHtmlTemplate(DEFAULT_BODY_TEMPLATE);
 
-export default function WorkflowsPage() {
+export default function Page() {
+  const searchParams = useSearchParams();
+  const editingWorkflowId = searchParams.get("edit");
+
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -615,7 +770,9 @@ export default function WorkflowsPage() {
         setStages(stagesData);
 
         const workflows = (workflowsResult.data ?? []) as WorkflowRow[];
-        const existing = workflows[0];
+        const existing = editingWorkflowId
+          ? workflows.find((workflow) => workflow.id === editingWorkflowId)
+          : null;
 
         if (existing) {
           setWorkflowId(existing.id);
@@ -696,6 +853,22 @@ export default function WorkflowsPage() {
             }
           }
         } else {
+          // New workflow mode: reset key fields to defaults
+          setWorkflowId(null);
+          setName("Deal: Request info → Request processed");
+          setActive(true);
+          setFromStageId("");
+          setToStageId("");
+          setPipeline("");
+          setSubjectTemplate("Your information request has been processed");
+          setBodyTemplate(DEFAULT_BODY_TEMPLATE);
+          setBodyHtmlTemplate(DEFAULT_BODY_HTML_TEMPLATE);
+          setUseHtmlTemplate(false);
+          setSendMode("immediate");
+          setDelayMinutes("0");
+          setRecurringEveryDays("0");
+          setRecurringTimes("0");
+
           const infoStage = stagesData.find((stage) =>
             stage.name.toLowerCase().includes("request for information"),
           );
@@ -724,7 +897,7 @@ export default function WorkflowsPage() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [editingWorkflowId]);
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -1007,6 +1180,7 @@ export default function WorkflowsPage() {
                 onChange={setBodyTemplate}
                 rows={8}
                 variables={TEMPLATE_VARIABLES}
+                highlightVariables={false}
               />
             </div>
 
@@ -1047,6 +1221,7 @@ export default function WorkflowsPage() {
                       min={1}
                       value={delayMinutes}
                       onChange={(event) => setDelayMinutes(event.target.value)}
+                      disabled={sendMode !== "delay"}
                       className="w-16 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
                     />
                     <span className="text-[11px] text-slate-500">
@@ -1073,6 +1248,7 @@ export default function WorkflowsPage() {
                       onChange={(event) =>
                         setRecurringEveryDays(event.target.value)
                       }
+                      disabled={sendMode !== "recurring"}
                       className="w-14 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
                     />
                     <span className="text-[11px] text-slate-500">days,</span>
@@ -1082,6 +1258,7 @@ export default function WorkflowsPage() {
                       max={30}
                       value={recurringTimes}
                       onChange={(event) => setRecurringTimes(event.target.value)}
+                      disabled={sendMode !== "recurring"}
                       className="w-14 rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
                     />
                     <span className="text-[11px] text-slate-500">occurrences</span>

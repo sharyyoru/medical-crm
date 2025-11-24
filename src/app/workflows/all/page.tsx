@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { supabaseClient } from "@/lib/supabaseClient";
 
 type DealStage = {
@@ -43,10 +44,13 @@ type WorkflowSummary = {
   recurringTimes: number | null;
 };
 
-export default function AllWorkflowsPage() {
+export default function Page() {
+  const router = useRouter();
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [workflows, setWorkflows] = useState<WorkflowSummary[]>([]);
+  const [workflowToDelete, setWorkflowToDelete] = useState<WorkflowSummary | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -245,6 +249,7 @@ export default function AllWorkflowsPage() {
                   <th className="px-3 py-2">Email subject</th>
                   <th className="px-3 py-2">Send mode</th>
                   <th className="px-3 py-2 text-right">Status</th>
+                  <th className="px-3 py-2 text-right">Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -322,6 +327,28 @@ export default function AllWorkflowsPage() {
                         {workflow.active ? "Active" : "Inactive"}
                       </span>
                     </td>
+                    <td className="px-3 py-2 text-right align-top">
+                      <div className="flex items-center justify-end gap-2">
+                        <button
+                          onClick={() => router.push(`/workflows?edit=${workflow.id}`)}
+                          className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600"
+                          title="Edit workflow"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+                          </svg>
+                        </button>
+                        <button
+                          onClick={() => setWorkflowToDelete(workflow)}
+                          className="rounded-md p-1 text-slate-400 hover:bg-red-50 hover:text-red-600"
+                          title="Delete workflow"
+                        >
+                          <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                          </svg>
+                        </button>
+                      </div>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -329,6 +356,61 @@ export default function AllWorkflowsPage() {
           </div>
         </section>
       </div>
+
+      {/* Delete Confirmation Modal */}
+      {workflowToDelete && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black bg-opacity-50 p-4">
+          <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
+            <h3 className="text-lg font-medium text-slate-900">Delete Workflow</h3>
+            <p className="mt-2 text-sm text-slate-500">
+              Are you sure you want to delete the workflow "{workflowToDelete.name}"? This action cannot be undone.
+            </p>
+            <div className="mt-6 flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setWorkflowToDelete(null)}
+                className="rounded-md border border-slate-200 bg-white px-4 py-2 text-sm font-medium text-slate-700 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-sky-500 focus:ring-offset-2"
+                disabled={isDeleting}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={async () => {
+                  try {
+                    setIsDeleting(true);
+                    const { error } = await supabaseClient
+                      .from('workflows')
+                      .delete()
+                      .eq('id', workflowToDelete.id);
+
+                    if (error) throw error;
+
+                    // Also delete associated actions
+                    await supabaseClient
+                      .from('workflow_actions')
+                      .delete()
+                      .eq('workflow_id', workflowToDelete.id);
+
+                    // Refresh the workflows list
+                    setWorkflows(workflows.filter(w => w.id !== workflowToDelete.id));
+                    setWorkflowToDelete(null);
+                  } catch (err) {
+                    console.error('Error deleting workflow:', err);
+                    setError('Failed to delete workflow. Please try again.');
+                  } finally {
+                    setIsDeleting(false);
+                  }
+                }}
+                className="rounded-md border border-transparent bg-red-600 px-4 py-2 text-sm font-medium text-white hover:bg-red-700 focus:outline-none focus:ring-2 focus:ring-red-500 focus:ring-offset-2"
+                disabled={isDeleting}
+              >
+                {isDeleting ? 'Deleting...' : 'Delete'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </main>
   );
 }
