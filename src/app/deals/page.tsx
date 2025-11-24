@@ -530,6 +530,11 @@ export default function DealsPage() {
                                   : "—";
 
                               const serviceName = deal.service?.name ?? "Not set";
+                              const patientName = deal.patient
+                                ? `${deal.patient.first_name ?? ""} ${
+                                    deal.patient.last_name ?? ""
+                                  }`.trim() || "Unknown patient"
+                                : "Unknown patient";
 
                               const isUpdating = updatingDealId === deal.id;
 
@@ -548,6 +553,9 @@ export default function DealsPage() {
                                 >
                                   <p className="text-[11px] font-semibold text-sky-700">
                                     {deal.title || "Untitled deal"}
+                                  </p>
+                                  <p className="mt-0.5 text-[10px] text-slate-700">
+                                    Patient: {patientName}
                                   </p>
                                   <p className="mt-0.5 text-[10px] text-slate-600">
                                     Pipeline: {deal.pipeline || "Geneva"}
