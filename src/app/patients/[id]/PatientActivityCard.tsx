@@ -205,6 +205,11 @@ export default function PatientActivityCard({
   const [emailSaving, setEmailSaving] = useState(false);
   const [emailSaveError, setEmailSaveError] = useState<string | null>(null);
 
+  const [emailAiDescription, setEmailAiDescription] = useState("");
+  const [emailAiTone, setEmailAiTone] = useState("professional and reassuring");
+  const [emailAiLoading, setEmailAiLoading] = useState(false);
+  const [emailAiError, setEmailAiError] = useState<string | null>(null);
+
   const [emailFilter, setEmailFilter] = useState<EmailFilter>("inbound");
   const [viewEmail, setViewEmail] = useState<PatientEmail | null>(null);
 
@@ -1504,6 +1509,54 @@ export default function PatientActivityCard({
         [taskId]: "Failed to save comment.",
       }));
       setTaskCommentSavingIds((prev) => prev.filter((id) => id !== taskId));
+    }
+  }
+
+  async function handleEmailAiGenerate() {
+    const description = emailAiDescription.trim();
+    if (!description) {
+      setEmailAiError("Please describe the email you want to generate.");
+      return;
+    }
+
+    try {
+      setEmailAiLoading(true);
+      setEmailAiError(null);
+
+      const response = await fetch("/api/patients/generate-email", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          patientId,
+          description,
+          tone: emailAiTone,
+        }),
+      });
+
+      const data = (await response.json()) as {
+        subject?: string;
+        body?: string;
+        error?: string;
+      };
+
+      if (!response.ok) {
+        setEmailAiError(data?.error ?? "Failed to generate email.");
+        return;
+      }
+
+      if (data.subject && data.subject.trim().length > 0) {
+        setEmailSubject(data.subject.trim());
+      }
+
+      if (data.body && data.body.trim().length > 0) {
+        setEmailBody(data.body.trim());
+      }
+    } catch {
+      setEmailAiError("Unexpected error generating email.");
+    } finally {
+      setEmailAiLoading(false);
     }
   }
 
@@ -3688,6 +3741,43 @@ export default function PatientActivityCard({
                   className="block w-full rounded-lg border border-slate-200 bg-slate-50/80 px-3 py-2 text-xs text-slate-900 shadow-sm focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
                   placeholder="Write your email..."
                 />
+              </div>
+              <div className="space-y-2 rounded-lg border border-slate-200 bg-slate-50/80 p-2 text-[11px] text-slate-700">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="font-medium text-slate-800">Generate with AI</span>
+                  <span className="text-[10px] text-slate-400">
+                    Describe the email you want to send. The patient's details are included automatically.
+                  </span>
+                </div>
+                <textarea
+                  value={emailAiDescription}
+                  onChange={(event) => setEmailAiDescription(event.target.value)}
+                  rows={3}
+                  placeholder="Describe the goal, key points, and context for this email..."
+                  className="mt-1 w-full rounded-md border border-slate-200 bg-white px-2 py-1 text-[11px] text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                />
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <select
+                    value={emailAiTone}
+                    onChange={(event) => setEmailAiTone(event.target.value)}
+                    className="h-7 rounded-md border border-slate-200 bg-white px-2 text-[11px] text-slate-900 focus:border-sky-500 focus:outline-none focus:ring-1 focus:ring-sky-500"
+                  >
+                    <option value="professional and reassuring">Professional & reassuring</option>
+                    <option value="friendly and informal">Friendly & informal</option>
+                    <option value="concise and to the point">Concise & to the point</option>
+                  </select>
+                  <button
+                    type="button"
+                    onClick={handleEmailAiGenerate}
+                    disabled={emailAiLoading}
+                    className="inline-flex items-center rounded-full border border-sky-500 bg-sky-600 px-3 py-1 text-[11px] font-medium text-white shadow-sm hover:bg-sky-700 disabled:cursor-not-allowed disabled:opacity-60"
+                  >
+                    {emailAiLoading ? "Generating…" : "Generate with AI"}
+                  </button>
+                </div>
+                {emailAiError ? (
+                  <p className="text-[10px] text-red-600">{emailAiError}</p>
+                ) : null}
               </div>
               <div className="space-y-1 text-[11px] text-slate-600">
                 <label className="inline-flex items-center gap-2">
