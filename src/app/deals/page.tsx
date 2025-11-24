@@ -554,7 +554,7 @@ export default function DealsPage() {
                                   <p className="text-[11px] font-semibold text-sky-700">
                                     {deal.title || "Untitled deal"}
                                   </p>
-                                  <p className="mt-0.5 text-[10px] text-slate-700">
+                                  <p className="mt-0.5 text-[12px] font-semibold text-emerald-700">
                                     Patient: {patientName}
                                   </p>
                                   <p className="mt-0.5 text-[10px] text-slate-600">
